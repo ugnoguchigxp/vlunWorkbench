@@ -172,6 +172,9 @@ describe("Security oracle CLI contract", () => {
 					...process.env,
 					NODE_ENV: "test",
 					DATABASE_URL: dbUrl,
+				SCAN_EXECUTION_MODE: "host",
+				ALLOW_HOST_SCANNER_EXECUTION: "true",
+				PROJECT_ALLOWED_ROOTS: repoPath,
 				SCAN_ARTIFACT_ROOT: artifactRoot,
 				PATH: `${mockBinDir}:${process.env.PATH ?? ""}`,
 				OPENAI_API_KEY: "",
@@ -298,7 +301,10 @@ describe("Security oracle CLI contract", () => {
 			nextAction: "apply_security_fix",
 		});
 		expect(payload.scan.findings[0].title).toContain("API Key");
-		expect(proc.stderr.toString()).toBe("");
+		const events = proc.stderr.toString().trim().split("\n").map((line) => JSON.parse(line));
+		expect(events.some((event) => event.event === "scan.started")).toBe(true);
+		expect(events.every((event) => event.scanRunId === payload.scan.scanRunId)).toBe(true);
+		expect(proc.stderr.toString()).not.toContain("super-secret-value");
 	}, 30_000);
 
 	it("does not expose finding paths outside the requested repository", async () => {

@@ -8,7 +8,7 @@ import {
 	mapSemgrepFindingToObservation,
 	parseOwaspExpectedResults,
 } from "../api/modules/benchmarks/owasp-benchmark-adapter";
-import { canonicalJson } from "../api/modules/scans/diff-scan-plan";
+import { canonicalJson } from "../api/modules/scans/execution/diff/diff-scan-plan";
 import { benchmarkMetricSchema } from "../shared/schemas/benchmark.schema";
 import {
 	gitCommit as benchmarkGitCommit,

@@ -4,10 +4,11 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { findings, projects } from "../../db/schema";
-import { ScanRepository } from "../scans/repositories";
+import { authorizeConfiguredProjectPath } from "../../security/configured-project-path";
 import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
-import { runToolProcess } from "../scans/tools/tool-process-runner";
 import { finalizeTemporaryWorkspace } from "../scans/execution/lifecycle/temporary-workspace-cleanup";
+import { ScanRepository } from "../scans/repositories";
+import { runToolProcess } from "../scans/tools/tool-process-runner";
 import {
 	getReproductionProfileById,
 	REPRODUCTION_PROFILES,
@@ -61,6 +62,7 @@ export class ReproductionRunner {
 		if (!project) {
 			throw new Error(`Project not found: ${finding.projectId}`);
 		}
+		await authorizeConfiguredProjectPath(project.repoPath);
 		if (options.scanRunId) {
 			const scan = await new ScanRepository(this.db).findById(
 				options.scanRunId,
@@ -142,6 +144,7 @@ export class ReproductionRunner {
 		if (!project) {
 			throw new Error(`Project not found: ${finding.projectId}`);
 		}
+		await authorizeConfiguredProjectPath(project.repoPath);
 		if (options.scanRunId) {
 			const scan = await new ScanRepository(this.db).findById(
 				options.scanRunId,

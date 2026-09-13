@@ -1,19 +1,11 @@
+import {
+	type ProjectApi,
+	projectListResponseSchema,
+	projectResponseSchema,
+} from "../../../shared/schemas/project-api.schema";
 import { requestJson, requestText } from "./core";
 
-export type Project = {
-	id: string;
-	ownerUserId: string;
-	name: string;
-	repoPath: string;
-	defaultBranch: string;
-	metadata: Record<string, unknown>;
-	createdAt: string;
-	updatedAt: string;
-	pathPolicy?: {
-		status: "allowed" | "blocked" | "missing";
-		reasonCode: string | null;
-	};
-};
+export type Project = ProjectApi;
 
 export type ScanRun = {
 	id: string;
@@ -118,14 +110,14 @@ export type FindingEvidence = {
 
 export async function fetchProjects(): Promise<Project[]> {
 	const data = await requestJson<{ projects: Project[] }>("/api/projects");
-	return data.projects;
+	return projectListResponseSchema.parse(data).projects;
 }
 
 export async function fetchProject(projectId: string): Promise<Project> {
 	const data = await requestJson<{ project: Project }>(
 		`/api/projects/${projectId}`,
 	);
-	return data.project;
+	return projectResponseSchema.parse(data).project;
 }
 
 export async function createProject(params: {
@@ -138,7 +130,7 @@ export async function createProject(params: {
 		method: "POST",
 		body: params,
 	});
-	return data.project;
+	return projectResponseSchema.parse(data).project;
 }
 
 export type DeleteProjectResult = {

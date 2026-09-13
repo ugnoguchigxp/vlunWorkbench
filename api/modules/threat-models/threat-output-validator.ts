@@ -1,9 +1,9 @@
 import type { ApplicationModel } from "../../../shared/schemas/application-model.schema";
 import {
-	threatHypothesisSchema,
 	type ThreatHypothesis,
+	threatHypothesisSchema,
 } from "../../../shared/schemas/threat-model.schema";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
 
 export function validateThreatHypothesisOutput(
 	input: unknown,

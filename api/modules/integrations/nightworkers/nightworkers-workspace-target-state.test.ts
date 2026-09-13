@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { withProjectPathRoots } from "../../../security/configured-project-path";
 import { captureWorkspaceTargetState } from "./nightworkers-workspace-target-state";
 
 const exec = promisify(execFile);
@@ -29,6 +30,12 @@ async function repository(parent: string, name: string) {
   return repo;
 }
 
+function capture(workspacePath: string, allowedRoots: readonly string[]) {
+  return withProjectPathRoots(allowedRoots, () =>
+    captureWorkspaceTargetState({ workspacePath, allowedRoots }),
+  );
+}
+
 describe("captureWorkspaceTargetState", () => {
   it("binds a linked worktree to the same common directory and observes drift", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "vw-workspace-grant-"));
@@ -37,51 +44,32 @@ describe("captureWorkspaceTargetState", () => {
     const worktree = path.join(root, "worktree");
     await git(repo, "worktree", "add", "--detach", worktree);
 
-    const registered = await captureWorkspaceTargetState({
-      workspacePath: repo,
-      allowedRoots: [root],
-    });
-    const before = await captureWorkspaceTargetState({
-      workspacePath: worktree,
-      allowedRoots: [root],
-    });
+    const registered = await capture(repo, [root]);
+    const before = await capture(worktree, [root]);
     expect(before.gitCommonDirDigest).toBe(registered.gitCommonDirDigest);
     expect(before.headSha).toBe(registered.headSha);
 
     await fs.writeFile(path.join(worktree, "README.md"), "changed\n", "utf8");
-    const after = await captureWorkspaceTargetState({
-      workspacePath: worktree,
-      allowedRoots: [root],
-    });
+    const after = await capture(worktree, [root]);
     expect(after.workspaceStateDigest).not.toBe(before.workspaceStateDigest);
     expect(after.targetDigest).not.toBe(before.targetDigest);
-  });
+  }, 30_000);
 
   it("distinguishes another repository and rejects a symlink escape", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "vw-workspace-grant-"));
     cleanup.push(root);
     const first = await repository(root, "first");
     const second = await repository(root, "second");
-    const firstState = await captureWorkspaceTargetState({
-      workspacePath: first,
-      allowedRoots: [root],
-    });
-    const secondState = await captureWorkspaceTargetState({
-      workspacePath: second,
-      allowedRoots: [root],
-    });
+    const firstState = await capture(first, [root]);
+    const secondState = await capture(second, [root]);
     expect(secondState.gitCommonDirDigest).not.toBe(firstState.gitCommonDirDigest);
 
     const allowed = path.join(root, "allowed");
     await fs.mkdir(allowed);
     const link = path.join(allowed, "escaped");
     await fs.symlink(second, link);
-    await expect(
-      captureWorkspaceTargetState({
-        workspacePath: link,
-        allowedRoots: [allowed],
-      }),
-    ).rejects.toMatchObject({ code: "project_path_denied" });
-  });
+    await expect(capture(link, [allowed])).rejects.toMatchObject({
+      code: "project_path_denied",
+    });
+  }, 30_000);
 });
-

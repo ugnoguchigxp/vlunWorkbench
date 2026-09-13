@@ -8,10 +8,10 @@ import { eq } from "drizzle-orm";
 import type { ProfileToolEntry } from "../../../shared/schemas/scan-profile.schema";
 import { createDbConnection, type DbConnection } from "../../db";
 import { scanArtifacts, toolRuns, users } from "../../db/schema";
-import { ArtifactRepository } from "../scans/artifact-repository";
-import { ArtifactStorage } from "../scans/artifact-storage";
-import { buildDiffScanPlan, canonicalJson } from "../scans/diff-scan-plan";
-import type { ResolvedGitDiff } from "../scans/git-diff-resolver";
+import { buildDiffScanPlan, canonicalJson } from "../scans/execution/diff/diff-scan-plan";
+import type { ResolvedGitDiff } from "../scans/execution/diff/git-diff-resolver";
+import { ArtifactRepository } from "../scans/execution/lifecycle/artifact-repository";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { persistedTargetMetadata } from "../scans/profile-runner";
 import {
 	FindingRepository,

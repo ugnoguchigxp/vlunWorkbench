@@ -1,3 +1,4 @@
+import { createStaticScannerAdapterRegistry } from "../static-scanner-adapters";
 import { describe, expect, it } from "vitest";
 import { buildScanProfiles } from "../profiles";
 import { resolveSourceSastCoverage } from "./source-sast-coverage";
@@ -118,4 +119,24 @@ describe("truthful source SAST coverage", () => {
       ],
     });
   });
+});
+
+it("derives a new SAST adapter's coverage without tool-specific branches", () => {
+  const id = "coverage-fixture-sast";
+  const registry = createStaticScannerAdapterRegistry();
+  if (!registry.has(id)) {
+    registry.register({
+      ...registry.require("semgrep"),
+      manifest: {
+        ...registry.require("semgrep").manifest,
+        id,
+        capabilities: ["source_sast"],
+        sourceSastRulesetId: "fixture-rules-v1",
+      },
+    });
+  }
+  const profile = buildScanProfiles({ optionalAdapterIds: ["semgrep"] }).find((entry) => entry.id === "full-security-scan")!;
+  const customProfile = { ...profile, steps: [{ kind: "static_tool", toolId: id, required: true }] } as typeof profile;
+  expect(resolveSourceSastCoverage(customProfile, undefined, undefined, registry)).toMatchObject({ coverageEffect: "gap", engine: id });
+  expect(resolveSourceSastCoverage(customProfile, [{ kind: "static_tool", toolId: id, status: "completed" } as never], undefined, registry)).toMatchObject({ coverageEffect: "covered", engine: id, stepId: id, rulesetId: "fixture-rules-v1" });
 });

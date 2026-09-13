@@ -14,8 +14,8 @@ import {
 	users,
 } from "../../../db/schema";
 import { IntegrationClientService } from "../../integrationClients/integration-client.service";
-import { ArtifactStorage } from "../../scans/artifact-storage";
-import { ScanReportRepository } from "../../scans/report-repository";
+import { ArtifactStorage } from "../../scans/execution/lifecycle/artifact-storage";
+import { ScanReportRepository } from "../../scans/reporting/report-repository";
 import {
 	ArtifactRepository,
 	FindingRepository,

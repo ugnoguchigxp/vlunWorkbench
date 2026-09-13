@@ -10,7 +10,7 @@ import { prepareContainerTargetGateway } from "../../api/modules/dast/container-
 import { RuntimeScannerRunner } from "../../api/modules/runtime-scans/runtime-scanner-runner";
 import { ZapBaselineRunner } from "../../api/modules/runtime-scans/zap-baseline-runner";
 import { ZAP_STABLE_IMAGE } from "../../api/modules/runtime-scans/zap-image-policy";
-import { ArtifactStorage } from "../../api/modules/scans/artifact-storage";
+import { ArtifactStorage } from "../../api/modules/scans/execution/lifecycle/artifact-storage";
 import { loadScannerDataManifest } from "../../api/modules/scans/tools/scanner-provenance";
 import type { ToolExecutionConfig } from "../../api/modules/scans/tools/tool-process-runner";
 import { startDastStandardFixture } from "../../tests/security-capability/dast-standard/app/server";

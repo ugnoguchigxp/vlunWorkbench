@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../../db";
 import { findings, projects, scanRuns, toolRuns } from "../../../db/schema";
-import { ScanArtifactSink } from "../../scans/artifact-sink";
-import { ArtifactStorage } from "../../scans/artifact-storage";
+import { ScanArtifactSink } from "../../scans/execution/lifecycle/artifact-sink";
+import { ArtifactStorage } from "../../scans/execution/lifecycle/artifact-storage";
 import { ArtifactRepository } from "../../scans/repositories";
 import { SECURITY_CHECK_DEFINITIONS } from "../checks/check-registry";
 import {

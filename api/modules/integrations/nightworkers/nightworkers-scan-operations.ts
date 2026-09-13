@@ -5,11 +5,11 @@ import type {
 	IntegrationStartScanResponse,
 } from "../../../../shared/schemas/nightworkers-security-scan-integration.schema";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
-import { canonicalJson } from "../../scans/diff-scan-plan";
+import { canonicalJson } from "../../scans/execution/diff/diff-scan-plan";
 import {
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
-} from "../../scans/scan-execution-policy";
+} from "../../scans/execution/scan-execution-policy";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 import {
 	IntegrationIdempotencyConflictError,

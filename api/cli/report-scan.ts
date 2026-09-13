@@ -5,11 +5,11 @@ import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { scanRuns } from "../db/schema";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
-import { ScanArtifactSink } from "../modules/scans/artifact-sink";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
-import { buildMarkdownReport } from "../modules/scans/report-builder";
-import { ScanReportRepository } from "../modules/scans/report-repository";
-import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
+import { ScanArtifactSink } from "../modules/scans/execution/lifecycle/artifact-sink";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import { buildMarkdownReport } from "../modules/scans/reporting/report-builder";
+import { ScanReportRepository } from "../modules/scans/reporting/report-repository";
+import { buildMarkdownReportWithLlmSummary } from "../modules/scans/reporting/report-summary-runner";
 import { ArtifactRepository } from "../modules/scans/repositories";
 import { LlmRouter } from "../providers/llmRouter";
 

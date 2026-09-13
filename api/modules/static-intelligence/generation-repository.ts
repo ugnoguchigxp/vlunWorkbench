@@ -10,7 +10,7 @@ import {
 } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import type { AppDatabase } from "../../db";
 import { scanArtifacts, scanRuns } from "../../db/schema";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import {
 	buildSnapshotRef,
 	buildStaticIntelligenceExportHash,

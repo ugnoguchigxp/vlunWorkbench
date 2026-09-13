@@ -9,7 +9,7 @@ import {
 	mapSemgrepFindingToObservation,
 	parseOwaspExpectedResults,
 } from "../../api/modules/benchmarks/owasp-benchmark-adapter";
-import { canonicalJson } from "../../api/modules/scans/diff-scan-plan";
+import { canonicalJson } from "../../api/modules/scans/execution/diff/diff-scan-plan";
 import { filterOwnedJavaTaintResults } from "../../api/modules/scans/tools/java-taint-precision-filter";
 import { loadScannerDataManifest } from "../../api/modules/scans/tools/scanner-provenance";
 import { benchmarkRunInputSchema } from "../../shared/schemas/benchmark.schema";

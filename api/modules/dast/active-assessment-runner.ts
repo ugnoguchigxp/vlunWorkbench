@@ -4,9 +4,11 @@ import { rulesOfEngagementSchema } from "../../../shared/schemas/assessment.sche
 import type { AppDatabase } from "../../db";
 import { AssessmentRepository } from "../assessments/assessment-repository";
 import { ZapActiveAssessmentCoordinator } from "../runtime-scans/zap-active-assessment-coordinator";
-import type { ArtifactStorage } from "../scans/artifact-storage";
-import { buildDedicatedProfileAdmissionMetadata } from "../scans/dedicated-profile-admission";
-import { createDedicatedLaunchAttempt } from "../scans/dedicated-profile-admission";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../scans/dedicated-profile-admission";
+import type { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { ScanLaunchAttemptRepository } from "../scans/execution/scan-launch-attempt-repository";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { redactSecrets } from "../scans/normalizers/redaction";
+import { redactSecrets } from "../scans/findings/normalizers/redaction";
 
 export interface DastArtifactSaveResult {
 	path: string;

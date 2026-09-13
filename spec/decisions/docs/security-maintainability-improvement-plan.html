@@ -1,0 +1,696 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="security-maintainability-improvement-plan">
+    セキュリティ境界・検出証跡・保守性の改善実装計画
+  </h1>
+  <p>Status: 実装・検証完了（個別再実行を含む / 2026-09-13）</p>
+  <p>作成日: 2026-09-12 / Owner: vulnWorkbench maintainers</p>
+  <p>計画基準コミット: <code>ab1d6c2a44b5e9eba06f39361ed8f4cd058dad32</code></p>
+  <p>
+    提示された20項目の改善案と、そのコード照合評価をもとにした実装計画。CI/CD関連を除き、妥当性の高い対策を先行する。条件付きの提案は依存調査・小規模実装・実測を完了条件に組み込み、調査前に大規模移行や削除を確定しない。
+  </p>
+
+  <h2 id="scope">1. 目的と対象範囲</h2>
+  <ul>
+    <li>Webからのローカルファイルアクセスとスキャン実行の境界を一貫させる。</li>
+    <li>検出能力の主張を固定入力・実行条件・証跡へ結び付け、未達理由を説明できるようにする。</li>
+    <li>既存の能力別所有方針に沿って実装を整理し、設定・障害解析・引き継ぎを改善する。</li>
+    <li>
+      認証、project所有者制御、SQLite Writer経由の書込み、bounded
+      scanner、秘密情報の非伝播という既存契約を維持する。
+    </li>
+  </ul>
+  <p>
+    対象外: GitHub
+    Actions等のworkflow変更、CIへのlint・生成物差分チェック追加、pre-commit/pre-push変更、release/tag自動化、GHCR公開、署名・provenance配布、CODEOWNERS・必須自動レビュー、定期CI演習。既存のローカル検証コマンドは利用する。以下に着手時の計画と実施結果を併記する。外部公開は実施対象に含めない。
+  </p>
+
+  <h2 id="traceability">2. 元の指摘との対応</h2>
+  <table>
+    <caption>
+      元の20項目と実装計画の対応
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">元番号</th>
+        <th scope="col">扱い</th>
+        <th scope="col">計画</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>優先実装</td>
+        <td>P01 許可ルートと実行時再確認</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>移行込みで実装</td>
+        <td>P02 Docker既定化</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>根拠を修正して実装</td>
+        <td>P03 入力検証・認可の経路監査と欠落修正</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>低優先・調査後に限定改修</td>
+        <td>P12 dynamic artifact収集の境界整理</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>二段階で実装</td>
+        <td>P11 Markdown防御強化とCSP</td>
+      </tr>
+      <tr>
+        <td>6・9</td>
+        <td>既存測定経路を再利用</td>
+        <td>P04 証跡の再現性・未達理由の説明</td>
+      </tr>
+      <tr>
+        <td>7・8</td>
+        <td>方針と独立評価を実装</td>
+        <td>P05 Java解析の責任範囲・実コーパス評価</td>
+      </tr>
+      <tr>
+        <td>10</td>
+        <td>実装</td>
+        <td>P08 capability宣言とcoverage集計</td>
+      </tr>
+      <tr>
+        <td>11・13</td>
+        <td>段階移行</td>
+        <td>P09 shim整理・scripts責務分割・ローカル行数予算</td>
+      </tr>
+      <tr>
+        <td>12</td>
+        <td>依存調査から着手</td>
+        <td>P13 legacy機能の境界整理</td>
+      </tr>
+      <tr>
+        <td>14</td>
+        <td>除外</td>
+        <td>Git hook変更はCI/CD系として本計画に含めない</td>
+      </tr>
+      <tr>
+        <td>15</td>
+        <td>小さく実装</td>
+        <td>P10 コマンド一覧・helpの整理</td>
+      </tr>
+      <tr>
+        <td>16</td>
+        <td>実装</td>
+        <td>P06 環境変数リファレンス生成</td>
+      </tr>
+      <tr>
+        <td>17</td>
+        <td>除外</td>
+        <td>release・配布・署名の自動化</td>
+      </tr>
+      <tr>
+        <td>18</td>
+        <td>ログを先行</td>
+        <td>P07 構造化ログ・必要最小限の監視</td>
+      </tr>
+      <tr>
+        <td>19</td>
+        <td>一領域で試行</td>
+        <td>P14 API契約とクライアント型の整合</td>
+      </tr>
+      <tr>
+        <td>20</td>
+        <td>非CI部分を計画化</td>
+        <td>P15 引き継ぎ・手動復旧演習・名称整合調査</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="baseline">3. 着手前の確認と比較基準</h2>
+  <p>
+    各作業の開始時に対象コードを再確認する。レビュー時の数や欠落を固定的な事実として扱わない。基準コミット、実行コマンド、対象テスト結果、入力ハッシュ、設定の非秘密部分を記録し、変更後に同条件で比較する。
+  </p>
+  <ul>
+    <li>
+      Web登録・一覧・スキャン開始、CLI、MCP、NightWorkersのパス解決、所有者確認、snapshot生成経路を一覧化する。
+    </li>
+    <li>
+      実行モードの環境変数・SQLite保存値・既定値の優先順と、初回起動・既存環境の挙動を記録する。
+    </li>
+    <li>
+      mutationの入力源、Zodのparse/safeParse/zValidator、service側検証、認可処理を区別して記録する。
+    </li>
+    <li>
+      <a href="../../security-capability/verification.md">検出能力の実測と再現</a
+      >に既存のLinuxクリーン測定とJava独立fixtureが記載されている。P04・P05はこれらの実装・証跡を確認し、重複した測定器を作らない。
+    </li>
+    <li>
+      READMEの版管理証跡とローカル結果は別実行として扱う。版管理されていることと、測定時にworking
+      treeがcleanだったことを区別する。
+    </li>
+    <li>
+      所要時間・ファイル数等は開始時の実測を記す。ベンチマークや全件検証を今回実行済みとは扱わない。
+    </li>
+  </ul>
+
+  <h2 id="sequence">4. 実施順序と変更単位</h2>
+  <table>
+    <caption>
+      実施段階と依存関係
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">段階</th>
+        <th scope="col">作業</th>
+        <th scope="col">先行条件・終了条件</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A 境界</td>
+        <td>P01 → P03 → P02</td>
+        <td>経路棚卸し後に実装。許可外パス・他所有者・暗黙host実行を拒否できる。</td>
+      </tr>
+      <tr>
+        <td>B 説明と計測</td>
+        <td>P04、P05の方針・コーパス選定</td>
+        <td>Aと独立して準備可能。正本選択と未達理由を明示し、独立評価を既存測定へ接続する。</td>
+      </tr>
+      <tr>
+        <td>C 設定と運用</td>
+        <td>P06 → P07、P10、P15の手順整備</td>
+        <td>P06はP01・P02で決めた設定を反映。ログ・help・手順が現在の挙動と一致する。</td>
+      </tr>
+      <tr>
+        <td>D 内部整理</td>
+        <td>P08 → P09、P11</td>
+        <td>
+          出力契約と回帰fixtureを確保して移行。P05でJavaの所有方針を決めてから関連ファイルを整理する。
+        </td>
+      </tr>
+      <tr>
+        <td>E 条件付き改善</td>
+        <td>P12、P13、P14、P07のmetrics</td>
+        <td>調査結果で範囲を確定。P14はP03後。不要な移行は理由を記録して見送れる。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    各Pを独立してレビュー可能な変更単位とする。方針・ロジック変更と大規模なファイル移動を同時に行わない。工数はS＝局所変更、M＝複数層の変更、L＝移行または評価用データ整備を含む相対規模であり、日数の確約ではない。
+  </p>
+
+  <h2 id="p01">5. P01 許可ルートと実行時再確認（優先度: 高 / 規模: L）</h2>
+  <p>
+    対象:
+    <code>api/security/project-path-policy.ts</code
+    >、<code>api/routes/projects.route.ts</code>、project-scan
+    route、snapshot・実行入口、env/settings、project表示。
+  </p>
+  <ol>
+    <li>
+      アプリ共通の許可ルート設定を設計する。MCP/client別制限がある場合は共通制限との積集合とし、既存の狭い制限を統合によって広げない。設定更新権限は管理者に限定する。
+    </li>
+    <li>
+      Webの登録・folder
+      picker結果・pathPolicy表示・スキャン開始・snapshot作成前に共通policyを適用する。CLIの扱いも棚卸し表に明示し、暗黙の迂回経路を残さない。
+    </li>
+    <li>
+      許可ルート未設定は実行を拒否し、ローカル初期設定で管理者が対象を設定できる導線を用意する。起動失敗やデータ削除ではなく、設定不足の理由を返す。
+    </li>
+    <li>
+      既存projectは保存データを保持してblocked/missing理由を表示する。既存artifact閲覧と新規ホスト読取りを区別し、設定変更後はpolicyを再評価する。
+    </li>
+    <li>
+      realpath後の境界判定に加え、内部symlinkとsnapshot追跡方針を確認する。実行直前の再確認だけでTOCTOUを解決したとは主張しない。
+    </li>
+  </ol>
+  <p>
+    完了条件:
+    許可内、許可外、空設定、兄弟prefix、symlinkによる外部参照、存在しないパス、設定変更後の既存projectを検証する。拒否時にscanner起動・snapshot生成がないこと、他ユーザーのprojectは許可ルート内でも利用できないことを確認する。ルートを広げる自動フォールバックを設けない。
+  </p>
+
+  <h2 id="p02">6. P02 Docker既定化（高 / M）</h2>
+  <p>
+    対象:
+    <code>api/config/runtime-settings.ts</code
+    >、<code>api/app/env.ts</code>、preflight、bootstrap、設定UI。
+  </p>
+  <ol>
+    <li>
+      設定未指定時の既定を環境によらずdockerにする。現行キー<code>SCAN_EXECUTION_MODE</code>と保存済み設定の優先順を維持・文書化する。
+    </li>
+    <li>
+      daemon・image・資格確認に失敗した場合は実行前に理由と復旧方法を返す。hostへ自動変更しない。
+    </li>
+    <li>
+      保存済みhost指定は維持して明示表示する。過去の既定値を保存しただけか識別できない場合は、その限界を記録して管理者に選択状態を示す。
+    </li>
+    <li>
+      hostは環境設定または管理者UIによる明示選択に限定する。非対話CLIやAPIから対話的な確認待ちを発生させない。
+    </li>
+  </ol>
+  <p>
+    完了条件:
+    新規・既存環境、明示host/docker、daemon不在、image不在、資格不備のケースを確認する。隔離・resource
+    limit・秘密情報非伝播に回帰がなく、失敗時にhost processを起動しない。
+  </p>
+
+  <h2 id="p03">7. P03 入力検証と認可（高 / M）</h2>
+  <p>
+    対象:
+    <code>api/routes/</code
+    >、関連service、<code>shared/schemas/</code>。
+  </p>
+  <ol>
+    <li>
+      route台帳を作り、body/param/query、検証位置、所有者照合、管理者要件、副作用を記録する。GETの機密読取りも認可監査に含める。
+    </li>
+    <li>
+      欠落だけを修正する。既存parse/safeParseは有効な検証として扱い、共通形状のみshared
+      schemaへ寄せる。
+    </li>
+    <li>
+      不正JSON、上限超過、enum不正、未知IDの扱いとエラー応答を整理する。本文のないmutationに無意味なJSON検証を強制しない。
+    </li>
+    <li>
+      ユーザーAのIDをユーザーBが指定する参照・更新・削除・実行をテストし、副作用がないことまで確認する。
+    </li>
+  </ol>
+  <p>
+    完了条件:
+    全対象routeの検証・認可位置または適用不要理由が台帳にある。発見した欠落に回帰テストがある。zValidator出現数を安全性指標にしない。middleware名だけを見る禁止lintは追加しない。
+  </p>
+
+  <h2 id="p04">8. P04 再現可能な証跡と未達理由（高 / M）</h2>
+  <p>
+    対象:
+    <code>scripts/benchmark/</code
+    >と既存capability測定、<code>spec/evidence/</code>、README日英版、検証手順。
+  </p>
+  <ol>
+    <li>
+      既存<code>verify:capability:linux</code>等の固定入力・clean
+      checkout・出力分離機能を確認し、不足だけ補う。
+    </li>
+    <li>
+      gateごとに期待条件、観測値、失敗理由、根拠ファイル、利用者への影響、再確認手順を残す。検出不足・未実行・環境不備・証跡不備を分離する。
+    </li>
+    <li>
+      READMEは承認対象の保存済み実行を参照し、最新ローカル値で自動上書きしない。既存測定がnot_metならそのまま説明する。
+    </li>
+    <li>
+      source commit、corpus/ruleset/scanner/DB/imageのhash、時刻、clean状態、run
+      IDを結び付ける。測定後に証跡をコミットしても測定時の状態を書き換えない。
+    </li>
+  </ol>
+  <p>
+    完了条件: READMEから未達条件へ1リンクで到達できる。OSV fixture成功とgate
+    falseなどの差を根拠付きで説明できる。固定条件で再実行可能で、異なるrunの数値を混ぜない。全gate合格を文書整備の必須条件にはせず、未達を隠さない。
+  </p>
+
+  <h2 id="p05">9. P05 Java解析の方針と実コーパス評価（高 / L）</h2>
+  <p>
+    対象: Java tool実装、既存Java holdout、benchmark
+    runner、<code>spec/decisions/</code>。
+  </p>
+  <ol>
+    <li>
+      独自解析を維持する暫定方針のADRを作り、対応構文・framework・検出範囲・既知の限界・保守責任を明記する。adapter内部に保持できる場合は移動しない。
+    </li>
+    <li>
+      既存独立fixtureの範囲を確認し、外部実コーパスで不足する一般化評価を追加する。WebGoat等は候補としてライセンス・固定版・ラベル作成可能性を調査する。
+    </li>
+    <li>
+      少なくとも外部コーパス1件を選び、対象脆弱性の位置・分類・検出単位と修正版等の負例を確定する。依存CVEをそのままsource
+      SAST正例にしない。
+    </li>
+    <li>
+      調整用データと評価用データを分離し、評価後にルール調整へ利用したケースは開発用へ移す。性能閾値は結果を見る前に定義する。
+    </li>
+    <li>
+      TP/FP/FN、precision/recall、対象外、未実行、解析時間をOWASP値と別掲する。母集団全体のラベルがない場合は、そのコーパス全体のrecallを主張しない。
+    </li>
+  </ol>
+  <p>
+    完了条件:
+    ADR、固定コーパスmanifest、正解ラベルと根拠、再実行コマンド、独立した結果がある。失敗・未実行をゼロ件成功として処理しない。能力基準未達は次の検出改善課題として記録する。
+  </p>
+
+  <h2 id="p06">10. P06 環境変数文書の生成（中 / M）</h2>
+  <p>
+    対象: EnvSchema、<code>.env.example</code>、設定リファレンス生成用script。
+  </p>
+  <p>
+    型・説明・既定値・任意性・秘密区分・再起動要否・保存設定との優先順をメタデータ化する。Zodのdescribeで表現できない情報は補助メタデータへ置く。完全な設定一覧を生成し、exampleは最小起動用と任意例に分ける。内部専用キーも区分して説明する。
+  </p>
+  <p>
+    完了条件:
+    全EnvSchemaキーが説明または内部専用として対応付く。同一入力で生成結果が一致し、実環境・SQLiteの秘密を読まない。example読込みで意図しない上書きが起きず、P01・P02の初期設定を再現できる。ローカル生成・照合コマンドを用意し、CI設定は変更しない。
+  </p>
+
+  <h2 id="p07">11. P07 構造化ログと監視（中 / M、metricsは条件付き）</h2>
+  <p>対象: app logger、scan lifecycle、Writer client health、LLM providerエラー境界。</p>
+  <p>
+    まずlevel/event/scanRunId/durationMs/errorCodeを持つJSON
+    loggerを導入する。scan開始・終了・失敗、Writer接続失敗、LLM呼出し失敗から移行する。既存の永続化イベントと重複した状態管理を作らない。secret、ソース本文、prompt、機密パスの出力を抑止する。
+  </p>
+  <p>
+    Writerの既存queueDepthを再利用する。継続的なscrape需要が確認できた場合のみmetrics
+    endpointを追加し、認証方法、counter再起動時の意味、集計範囲を定義する。projectId/scanRunIdをmetrics
+    labelに使わない。
+  </p>
+  <p>
+    完了条件: 意図的なscan/Writer/provider失敗をrun
+    IDとerrorCodeで追跡でき、秘密値を含まない。ログ障害で主処理を壊さない。metricsを見送る場合は理由と既存healthによる運用手順を残す。
+  </p>
+
+  <h2 id="p08">12. P08 capability宣言とcoverage（中 / L）</h2>
+  <p>対象: StaticScannerAdapter manifest/registry、coverage、execution plan、関連fixture。</p>
+  <p>
+    既存ScanCapabilityIdに沿ってadapterの能力を宣言する。static以外のDAST・artifact等はそれぞれの実行計画の能力情報へ結び付ける。coverageは登録情報・適用可否・ruleset・実行結果・証跡を集計し、tool
+    ID分岐を減らす。ControlIdへの対応はcoverage側の方針として分離する。
+  </p>
+  <p>
+    完了条件: 現行scannerのcovered/gap/not_applicable/unknown結果が保持される。fixture
+    adapter追加にreport/coverage/handoffのtool分岐追加を要しない。宣言だけでcoveredにならず、未実行・失敗・複数adapter・実行順変更を扱える。
+  </p>
+
+  <h2 id="p09">13. P09 shim移行とscripts責務分割（中 / M〜L）</h2>
+  <p>対象: scans直下、旧normalizers、import参照、行数予算、1000行超script。</p>
+  <ol>
+    <li>
+      shim参照と直下ファイルの所有先を一覧化する。公開入口・registry等の正当な直下ファイルは維持する。
+    </li>
+    <li>
+      内部importを所有先へ移行し、互換期間が必要なshimだけdeprecatedにする。参照ゼロ・外部利用確認後に削除する。
+    </li>
+    <li>
+      scriptsをローカル行数予算の対象に追加し、既存超過は理由付きbaselineとして登録する。新しい肥大化を防ぎつつ段階解消する。
+    </li>
+    <li>
+      scanner-e2e等をcase定義・実行・証跡出力で分割する。既存分割先を再利用し、移動と挙動変更を分ける。
+    </li>
+  </ol>
+  <p>
+    完了条件:
+    対象の旧参照がなく、主要entrypointが動作し、証跡schema・終了コード・後片付けが変わらない。所有表と実ファイルを照合する。期限だけによる削除や全ファイル一律800行化は行わない。
+  </p>
+
+  <h2 id="p10">14. P10 コマンドの発見性（中 / S）</h2>
+  <p>
+    利用開始、日常スキャン、診断、設定、開発検証の用途別一覧とhelpを作る。package.jsonの既存コマンドを参照し、実在しないコマンドを掲載しない。既存191
+    scriptの一括削除やgate CLIへの全面置換は行わない。
+  </p>
+  <p>
+    完了条件:
+    初回利用と障害診断に必要なコマンドを一覧から見つけられる。help自体がscanやDB変更を起動せず、既存コマンドが互換のまま利用できる。
+  </p>
+
+  <h2 id="p11">15. P11 Markdown防御強化とCSP（中 / M〜L）</h2>
+  <p>
+    先にsafe-markdownの既存raw
+    HTML・画像・危険scheme制限を維持したまま、最終HTMLの許可リスト処理を共通化する。sanitize-htmlをブラウザへ追加する場合は互換性・bundle増分を確認し、wikiとの許可機能差は明示的なpolicyとして扱う。
+  </p>
+  <p>
+    次にinline
+    style、CSS-in-JS、動的位置・幅などを棚卸しし、静的クラス化または必要なnonce対応を実施する。style-srcのunsafe-inline削除は依存UIが動くことを確認した段階で行う。
+  </p>
+  <p>
+    完了条件:
+    危険scheme、entity、event属性、不正HTML、通常のtable/link/codeを回帰確認する。レポート・editor・wikiの表示が保たれる。CSP適用後の主要画面にスタイル欠落がない。依存ライブラリが障害になる場合は例外範囲と解消条件を残し、CSP完了とはしない。
+  </p>
+
+  <h2 id="p12">16. P12 dynamic artifact収集（低 / M）</h2>
+  <p>
+    固定shell
+    wrapperの入力経路を確認し、envやargvがコードとして再解釈されないことを確かめる。artifactのパス、symlink、出力量、timeout、非root・read-only条件のテストを先に整える。その上で固定helperへの切出し等が契約を簡素化する場合に限定して変更する。
+  </p>
+  <p>
+    完了条件: 空白・引用符・shell
+    metacharacterを含む名前をデータとして処理する。artifactが出力境界を越えず、上限・終了コード・cleanupを維持する。置換の利益がなければ固定wrapperと入力契約を文書化して完了し、未確認のシェル注入修正とは表記しない。
+  </p>
+
+  <h2 id="p13">17. P13 legacy機能の境界（低 / L）</h2>
+  <p>
+    chat/search/rag/knowledgeのroute、UI、MCP、retriever、DB、provider初期化への依存を一覧化する。補助機能として利用される経路は維持する。必要なら現行有効状態を保った明示フラグを導入し、無効時はrouteだけでなくUIと不要な初期化も停止する。
+  </p>
+  <p>
+    完了条件:
+    有効時の既存経路と無効時のscan主経路を検証する。保存データを削除せず再有効化できる。別package化・既定off・削除は利用調査後の別判断とし、本作業は依存表と境界改善または維持理由の記録までを必須とする。
+  </p>
+
+  <h2 id="p14">18. P14 API契約の試行（低 / L）</h2>
+  <p>
+    P03で整理したproject等の一領域を選び、request/response/error/authを含む契約を定義する。既存Hono型共有とOpenAPI生成の双方を比較し、外部CLI利用・仕様公開に必要な方式を選ぶ。採用時も共通Zod
+    schemaを正として重複定義を避ける。
+  </p>
+  <p>
+    完了条件:
+    一領域でサーバー検証・仕様・Web型が一致し、誤ったresponseを検出できる。既存web/src/api.tsの認証・refresh
+    retry・unauthorized処理を維持する。ローカルで生成結果を再現できる。全面移行は試行結果とコストを記録した後の範囲として切り分ける。
+  </p>
+
+  <h2 id="p15">19. P15 引き継ぎ・復旧・名称整合（中 / M）</h2>
+  <p>
+    30分程度で構造と作業入口を把握するonboardingを作る。初回起動、project境界設定、scan、証跡の読み方、Writer障害、backup/restore、変更時の検証、既知の限界を含める。役割と未割当の代替担当を記し、自動レビューを代替保守者とは数えない。
+  </p>
+  <p>
+    使い捨て環境と非機密fixtureで手動のclean
+    checkout・backup復元演習を行い、手順の不足と結果を残す。秘密は文書へ複製しない。リポジトリ表記のtypoはURL・badge・clone例・外部参照への影響を調べ、ローカル文書の名称を整理する。GitHub上のrenameやremote変更は本計画の実装対象に含めず、必要性と移行案を記録する。
+  </p>
+  <p>
+    完了条件: 新しい作業環境で起動・fixture
+    scan・復元・停止を手順から実行できる。別担当による演習を実施できない場合はその事実を残し、バス係数が改善したとは主張しない。
+  </p>
+
+  <h2 id="verification">20. 検証・移行・完了管理</h2>
+  <ul>
+    <li>
+      各Pに変更前後の結果、実行コマンド、差分理由、残課題を記録する。プロバイダー資格情報なしで実行可能なfixtureテストを先行する。
+    </li>
+    <li>
+      API・設定変更はtypecheckと対象route/moduleテスト、UI変更はbuildと主要操作、共通scan変更は関連fixtureと必要範囲の全体テストを行う。横断変更の区切りで既存のローカルverifyを使う。
+    </li>
+    <li>
+      Docker・実コーパス確認はunit
+      testと区別し、前提不足による未実行を明記する。単なるmock成功を隔離や検出能力の実証としない。
+    </li>
+    <li>
+      データ変更が必要ならWriter経由の後方互換migrationを用意し、既存project・設定・証跡の読取りと復元を確認する。証跡を破壊的に再生成しない。
+    </li>
+    <li>
+      P01の設定不足で利用が止まった場合は管理者による許可ルート設定で復旧する。安全境界を無効化する自動rollbackはしない。その他の移行も戻せる単位で実施する。
+    </li>
+    <li>
+      状態は未着手・実装中・検証待ち・完了・判断済み見送りを区別する。条件付き項目の見送りには調査根拠・再検討条件を残す。
+    </li>
+  </ul>
+  <p>
+    計画全体の完了条件:
+    P01〜P15がそれぞれの完了条件を満たすか、条件付き項目として根拠付きで判断済みとなり、対応表・検証結果・残存リスクが更新されていること。CI/CDの追加を完了の前提にしない。実装完了と検出能力基準の達成を混同しない。
+  </p>
+
+  <h2 id="implementation-results">21. 実施結果（2026-09-13）</h2>
+  <p>
+    変更は作業ツリー上に実装した。検出器の性能達成と実装完了を区別する。CI/CD workflow・Git
+    hook・署名/公開の変更は含まない。
+  </p>
+  <table>
+    <caption>
+      P01〜P15の実施結果
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">項目</th>
+        <th scope="col">状態</th>
+        <th scope="col">実施内容・判断</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P01</td>
+        <td>実装</td>
+        <td>
+          共通許可ルート・実行時再確認・MCPとWebの非同期context分離。既存データ閲覧を残し、空設定・symlink逸脱・別所有者の実行を拒否。
+        </td>
+      </tr>
+      <tr>
+        <td>P02</td>
+        <td>実装</td>
+        <td>
+          Docker既定、API省略値のhost選択を除去。管理者によるhost許可と保存設定の優先を維持。Docker失敗時のfallbackは追加しない。
+        </td>
+      </tr>
+      <tr>
+        <td>P03</td>
+        <td>実装</td>
+        <td>
+          149 route登録の入力アクセス・検証位置・親認証/所有者境界を台帳化。assessment・DAST
+          auth・reviewの不正JSONを400に統一し副作用なしをテスト。
+        </td>
+      </tr>
+      <tr>
+        <td>P04</td>
+        <td>実装</td>
+        <td>
+          既存Linux clean runのreport/manifestを変更せず保存。16
+          artifactのハッシュを再照合するローカルコマンドを追加。過去の未達と新しい履歴を区別。
+        </td>
+      </tr>
+      <tr>
+        <td>P05</td>
+        <td>評価完了・検出基準未達</td>
+        <td>
+          外部WebGoat固定commit・4 SQL sinkの独立評価。TP0/FN2/FP0/TN2、recall0、precision
+          null。owned analyzerを維持し、評価集合に合わせたルール調整はしない。
+        </td>
+      </tr>
+      <tr>
+        <td>P06</td>
+        <td>実装</td>
+        <td>
+          EnvSchema全キーから説明付き環境変数一覧を生成。空ルートの拒否と設定優先順をREADME/example/bootstrapへ反映。
+        </td>
+      </tr>
+      <tr>
+        <td>P07</td>
+        <td>実装・条件付き見送り</td>
+        <td>
+          scan/Writer/providerの許可フィールドJSONログ。例外本文やsourceを入れずstderrへ出力。metrics
+          endpointは利用先と認可要件が未定のため追加しない。
+        </td>
+      </tr>
+      <tr>
+        <td>P08</td>
+        <td>実装</td>
+        <td>
+          static adapterのcapabilities/sourceSastRulesetIdからcoverageを構成。独自SAST
+          adapterの未実行gap/実行済covered回帰テストを追加。
+        </td>
+      </tr>
+      <tr>
+        <td>P09</td>
+        <td>実装・互換層維持</td>
+        <td>
+          内部importを能力所有先へ移行。79単純shimを非推奨化して互換性を維持。scanner
+          E2E・JuiceShop・static fixture・pilot validationを分割しscriptsも行数予算へ追加。
+        </td>
+      </tr>
+      <tr>
+        <td>P10</td>
+        <td>実装</td>
+        <td>
+          package scriptsから用途別コマンド一覧を表示するcommandsを追加。既存コマンド名を維持。
+        </td>
+      </tr>
+      <tr>
+        <td>P11</td>
+        <td>実装</td>
+        <td>
+          report/wiki共通の最終HTML sanitize境界を追加し危険scheme/event/raw HTMLを制限。CSP
+          style-srcからunsafe-inlineを削除。ReactによるCSSOMの動的値設定は維持。
+        </td>
+      </tr>
+      <tr>
+        <td>P12</td>
+        <td>判断済み維持</td>
+        <td>
+          固定shell
+          wrapperの引用・環境変数/argv・上限・cleanup契約を確認。置換利益が小さいため実装を維持。未確認の注入脆弱性を修正したとは扱わない。
+        </td>
+      </tr>
+      <tr>
+        <td>P13</td>
+        <td>判断済み維持</td>
+        <td>
+          knowledge/search/chatはUI・MCPから実利用されるため削除・package分離・flag追加をしない。再検討条件をADRへ記録。
+        </td>
+      </tr>
+      <tr>
+        <td>P14</td>
+        <td>試行実装・全面移行見送り</td>
+        <td>
+          Project responseの共有Zod schemaをWebクライアントへ適用。既存request
+          schema/認可/error経路を維持。外部仕様公開要件がないためOpenAPI全面移行は行わない。
+        </td>
+      </tr>
+      <tr>
+        <td>P15</td>
+        <td>実装・運用引き継ぎは未実施</td>
+        <td>
+          最初の30分・障害解析・手動復旧手順と使い捨てbackup:drillを追加。DBと別artifactを復元し参照/ハッシュ確認。代替担当未割当、remote名称は外部利用根拠なしのため変更しない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="implementation-evidence">成果物・検証証跡</h3>
+  <ul>
+    <li>
+      <a href="../../generated/environment.md">生成した環境変数一覧</a>、<a
+        href="../../generated/route-contract-inventory.json"
+        >149 routeの入力・認可台帳</a
+      >、<a href="../route-contract-review.json">route群別の境界判断</a
+      >。台帳は実装の参照位置であり、安全性の機械的証明ではない。
+    </li>
+    <li>
+      <a href="../../evidence/capability-measurement-notes.html"
+        >過去の測定・未達理由・外部Javaの制約</a
+      >、<a href="../../evidence/java-external-2026-09-13.json">今回のJava評価</a>。
+    </li>
+    <li>
+      <a href="../owned-analyzers-and-optional-features.html">条件付き項目のADR</a>、<a
+        href="../operator-onboarding.html"
+        >導入・復旧手順</a
+      >。
+    </li>
+    <li>
+      ブラウザ全16件成功。設定・Project Intelligence・狭幅表示・実DB scan/result/report保存とCSP
+      enforceを含む。
+    </li>
+    <li>
+      不正JSON回帰を含むassessment/DAST auth/scans route 28件成功。共通パス/新規adapter
+      coverage/保存証跡の10件成功。
+    </li>
+    <li>
+      backup:drillで40
+      migrationの整合、project1件/scan1件/別保存artifact1件の復元・ハッシュ一致を確認。実環境の復元と人間の引き継ぎ演習とは区別する。
+    </li>
+    <li id="final-verification">
+      全体検証のテストstage停止後、追加fixtureの期待値とGit/Writerを使うテストの時間枠を修正した。該当3ファイルを含む再実行が成功。全体API
+      snapshot
+      424ファイルに追加10ファイルを照合し、現時点のBun対象426ファイルを実行した。依存更新後はAPI
+      route等28ファイル、Web 461件、ブラウザ16件を再実行して成功。単発のverify完走とは記録しない。
+    </li>
+    <li>
+      型検査、lint、format、行数予算、環境変数/route生成物、仕様書、SQLite書込み境界、build、bundle予算、artifact追跡を確認。依存監査の5指摘を解消するためHono
+      4.13.5・js-yaml 3.15.2・smol-toml 1.7.1へ更新し、監査は0件となった。<a
+        href="../dependency-overrides.html"
+        >更新根拠と参照advisory</a
+      >。
+    </li>
+    <li>
+      <a href="../../evidence/improvement-verification-2026-09-13.json"
+        >検証結果とローカルログのhash</a
+      >。Bunの外部HTTPSタイムアウトに対して一時的なloopback中継を使用した。公式npmの配布物と監査応答を使い、Bunのintegrity検証・通常のfrozen
+      installを確認した。中継は終了し、registry設定を残していない。
+    </li>
+  </ul>
+  <h3 id="remaining-limits">残る制約と移行</h3>
+  <ul>
+    <li>
+      PROJECT_ALLOWED_ROOTSを未設定の環境は、管理者が実際の検査対象を指定して再起動する必要がある。今回、利用者の.envを自動変更して許可を広げることはしない。
+    </li>
+    <li>
+      保存済みhost設定が過去の既定値か意図的選択かは復元できない。保存値を保持し、管理者がruntime設定を確認する。
+    </li>
+    <li>
+      Linux能力証跡は過去commitの記録。今回のmacOS作業ツリーをLinuxで再測定した結果として扱わない。外部Javaの検出基準未達を隠さない。
+    </li>
+    <li>
+      実行時のパス再確認は各入口で行うが、悪意ある別プロセスによるOSレベルの同時ファイル変更を完全に防ぐものではない。既存snapshot/実行境界の検証も維持する。
+    </li>
+    <li>
+      Project API試行はWebのresponse検証であり、全APIのOpenAPI定義・サーバresponse
+      validationを導入したものではない。
+    </li>
+  </ul>
+</article>

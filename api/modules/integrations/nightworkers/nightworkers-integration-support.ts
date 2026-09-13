@@ -3,15 +3,15 @@ import type { IntegrationScanRunDetail } from "../../../../shared/schemas/nightw
 import type { AppEnv } from "../../../app/env";
 import type { AppDatabase } from "../../../db";
 import type { ScanReportRunner } from "../../reports/scan-report-runner";
-import type { ArtifactStorage } from "../../scans/artifact-storage";
-import type { ScanReportRepository } from "../../scans/report-repository";
+import type { ArtifactStorage } from "../../scans/execution/lifecycle/artifact-storage";
+import type { ScanProcessSupervisor } from "../../scans/execution/scan-process-supervisor";
+import type { ScanReportRepository } from "../../scans/reporting/report-repository";
 import type {
 	ArtifactRepository,
 	FindingRepository,
 	ProjectRepository,
 	ScanRepository,
 } from "../../scans/repositories";
-import type { ScanProcessSupervisor } from "../../scans/scan-process-supervisor";
 import type { NightworkersIntegrationRepository } from "./nightworkers-integration.repository";
 
 export const TERMINAL_SCAN_STATUSES = new Set([

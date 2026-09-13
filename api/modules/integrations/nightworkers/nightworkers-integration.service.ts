@@ -12,9 +12,9 @@ import type {
 } from "../../../../shared/schemas/nightworkers-security-scan-integration.schema";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
 import { analyzeProjectCapabilities } from "../../project-capabilities/plugin-detector";
-import { buildDiffScanPlan } from "../../scans/diff-scan-plan";
-import { resolveFullScanTarget } from "../../scans/full-scan-target";
-import { resolveGitDiff } from "../../scans/git-diff-resolver";
+import { buildDiffScanPlan } from "../../scans/execution/diff/diff-scan-plan";
+import { resolveGitDiff } from "../../scans/execution/diff/git-diff-resolver";
+import { resolveFullScanTarget } from "../../scans/execution/full-scan-target";
 import { resolveNightworkersProject } from "./nightworkers-integration-project-resolver";
 import type { ServiceDependencies } from "./nightworkers-integration-support";
 import { NightworkersResultOperations } from "./nightworkers-result-operations";

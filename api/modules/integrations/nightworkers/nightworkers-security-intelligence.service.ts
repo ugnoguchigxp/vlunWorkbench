@@ -1,22 +1,22 @@
-import type { SecurityIntelligenceAssessmentV1 } from "../../../../shared/schemas/security-intelligence-assessment.schema";
+import { NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION } from "../../../../shared/schemas/nightworkers-security-intelligence.schema";
 import {
 	deriveSecurityIntelligenceBindingProof,
 	NIGHTWORKERS_SECURITY_INTELLIGENCE_IDENTITY_MAPPING_VERSION,
 	type NightworkersSecurityIntelligenceCapabilities,
 	type SecurityIntelligenceBindingProof,
 } from "../../../../shared/schemas/nightworkers-security-intelligence-binding.schema";
-import { NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION } from "../../../../shared/schemas/nightworkers-security-intelligence.schema";
+import type { SecurityIntelligenceAssessmentV1 } from "../../../../shared/schemas/security-intelligence-assessment.schema";
 import { parseSecurityIntelligenceAssessmentV1 } from "../../../../shared/security-intelligence-assessment-contract";
 import type { AppEnv } from "../../../app/env";
 import type { AppDatabase } from "../../../db";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
-import type { ArtifactStorage } from "../../scans/artifact-storage";
+import type { ArtifactStorage } from "../../scans/execution/lifecycle/artifact-storage";
 import type { ScanRepository } from "../../scans/repositories";
+import { persistedDependencyScanMetadataSchema } from "../../security-intelligence/persisted-dependency-assessment.schema";
 import {
 	buildPersistedDependencyAssessment,
 	type DependencyAssessmentRequest,
 } from "../../security-intelligence/security-assessment-service";
-import { persistedDependencyScanMetadataSchema } from "../../security-intelligence/persisted-dependency-assessment.schema";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 import type { NightworkersIntegrationRepository } from "./nightworkers-integration.repository";
 import {

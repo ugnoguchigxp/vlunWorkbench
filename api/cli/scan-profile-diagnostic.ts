@@ -4,10 +4,10 @@ import type { AppDatabase } from "../db";
 import { scanArtifacts } from "../db/schema";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
-import { ScanReportRepository } from "../modules/scans/report-repository";
-import { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
-import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import { ScanDiagnosticRunner } from "../modules/scans/handoff/scan-diagnostic-runner";
+import { ScanReviewRunner } from "../modules/scans/handoff/scan-review-runner";
+import { ScanReportRepository } from "../modules/scans/reporting/report-repository";
 import { LlmRouter } from "../providers/llmRouter";
 
 export async function runCliAutomatedDiagnostic(params: {

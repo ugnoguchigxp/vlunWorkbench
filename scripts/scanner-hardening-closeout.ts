@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { runGitText } from "../api/modules/scans/git-command";
+import { runGitText } from "../api/modules/scans/execution/diff/git-command";
 import { scannerE2EQualificationV2Schema } from "../shared/schemas/scanner-e2e-qualification-v2.schema";
 import { scannerHardeningCloseoutReceiptSchema } from "../shared/schemas/scanner-hardening-receipt.schema";
 import { todolistScannerBaselineSchema } from "../shared/schemas/todolist-scanner-baseline.schema";

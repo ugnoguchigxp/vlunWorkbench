@@ -12,7 +12,7 @@ import { buildCoverageLedger } from "../coverage/coverage-ledger";
 import { aggregateRuntimeAssessmentCoverage } from "../coverage/runtime-assessment-coverage";
 import { resolveSourceSastApplicability } from "../coverage/source-sast-applicability";
 import { resolveSourceSastCoverage } from "../coverage/source-sast-coverage";
-import { FindingRepository } from "../finding-repository";
+import { FindingRepository } from "../findings/finding-repository";
 import type { ScanRepository } from "../repositories";
 import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
 import type { resolveScanScope } from "../target-scope";

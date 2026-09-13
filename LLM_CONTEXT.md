@@ -132,3 +132,11 @@ DAST / runtime-scans モジュールは独立のまま。ScanExecution だけが
 | `bun run test` | Vitest + Bun scan module tests |
 | `bun run build` | Vite production build |
 | `bun run verify` | Full local verification pipeline |
+
+## Project boundary and local operations
+
+- `PROJECT_ALLOWED_ROOTS` is required for repository access through Web, CLI, MCP and integrations. Empty roots deny access; use `api/security/configured-project-path.ts`. Client-specific roots are additional restrictions.
+- New scanner execution defaults to Docker. Host execution requires explicit configuration. Stored runtime settings take precedence; never silently fall back after Docker preflight failure.
+- Static adapter manifests declare `capabilities` and optionally `sourceSastRulesetId`; coverage uses the registry rather than tool-ID branches.
+- Internal imports use capability-owned paths. Deprecated re-export shims remain for compatibility; do not add new internal references to them.
+- Local entry points: `bun run commands`, `bun run env:reference -- --check`, `bun run routes:inventory -- --check`, `bun run backup:drill`. See `spec/decisions/docs/security-maintainability-improvement-plan.html` for outcomes and measurement limits.

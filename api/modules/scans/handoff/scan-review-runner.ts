@@ -1,3 +1,4 @@
+import { withLogContext } from "../../../app/logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { z } from "zod";
@@ -190,13 +191,15 @@ export class ScanReviewRunner {
 			createdByUserId: options.createdByUserId,
 		});
 
-		const completion = this.completeReview({
-			reviewId: review.id,
-			bundle,
-			options,
-			resolvedProvider,
-			providerRouting,
-		});
+		const completion = withLogContext({ scanRunId }, () =>
+			this.completeReview({
+				reviewId: review.id,
+				bundle,
+				options,
+				resolvedProvider,
+				providerRouting,
+			}),
+		);
 		return {
 			reviewId: review.id,
 			status: "running",

@@ -10,7 +10,7 @@ import {
 	parseAuthorizationBoundaryDiff,
 	parseAuthorizationBoundarySnapshot,
 } from "../../../shared/schemas/security-intelligence-authorization.schema";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
 
 export function diffAuthorizationBoundaries(
 	beforeInput: AuthorizationBoundarySnapshot,

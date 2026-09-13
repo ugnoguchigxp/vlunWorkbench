@@ -1,13 +1,13 @@
-import type { AppDatabase } from "../../db";
 import { EMPTY_DAST_COVERAGE_SUMMARY } from "../../../shared/schemas/dast-coverage.schema";
+import type { AppDatabase } from "../../db";
+import type { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import {
 	ArtifactRepository,
 	FindingRepository,
 	ScanRepository,
 } from "../scans/repositories";
-import type { ArtifactStorage } from "../scans/artifact-storage";
-import type { DastBrowserAdapter } from "./browser-runner";
 import type { DastAuthContextRepository } from "./auth-context-repository";
+import type { DastBrowserAdapter } from "./browser-runner";
 import type { DastArtifactStorage } from "./dast-artifact-storage";
 import { normalizeDastResult } from "./dast-normalizer";
 import { executeDastProfile } from "./dast-profile-executor";
@@ -15,9 +15,9 @@ import { DastRepository } from "./dast-repository";
 import { saveDastRawArtifacts } from "./dast-run-artifacts";
 import { emitDastAssessmentEvents } from "./dast-run-events";
 import { prepareDastRun } from "./dast-run-preparation";
+import type { DastCliResult, RunDastOptions } from "./dast-runner-types";
 import type { DastFetch } from "./http-runner";
 import { policyForDastProfile } from "./policy";
-import type { DastCliResult, RunDastOptions } from "./dast-runner-types";
 
 export type { DastCliResult, RunDastOptions } from "./dast-runner-types";
 

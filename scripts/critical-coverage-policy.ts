@@ -3,7 +3,7 @@ export type CriticalCoverageTarget = {
 	minimum: number;
 };
 
-export const criticalCoverageTargetBaseline = 34;
+export const criticalCoverageTargetBaseline = 36;
 
 export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 	{ path: "api/middleware/auth.ts", minimum: 95 },
@@ -20,6 +20,8 @@ export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 		path: "api/modules/dynamic/dynamic-bundle-lease-janitor.ts",
 		minimum: 90,
 	},
+	{ path: "api/modules/dynamic/dynamic-source-revision.ts", minimum: 90 },
+	{ path: "api/security/configured-project-path.ts", minimum: 95 },
 	{ path: "api/modules/dynamic/dynamic-artifact-storage.ts", minimum: 75 },
 	{ path: "api/modules/dynamic/dynamic-docker-executor.ts", minimum: 85 },
 	{ path: "api/modules/dynamic/dynamic-evidence-builder.ts", minimum: 90 },
@@ -102,6 +104,8 @@ export const criticalCoverageTests = [
 	"api/security/outbound-url-policy.test.ts",
 	"api/security/project-path-policy.test.ts",
 	"api/security/secret-crypto.test.ts",
+	"api/security/configured-project-path.test.ts",
+	"api/modules/dynamic/dynamic-source-revision.test.ts",
 	"api/modules/dast/active-assessment-runner.test.ts",
 	"api/modules/dynamic/dynamic-bundle-lease-cleanup.test.ts",
 	"api/modules/dynamic/dynamic-bundle-lease-janitor.test.ts",
@@ -126,4 +130,5 @@ export const criticalCoverageTests = [
 	"api/modules/scans/execution/web-scan-post-processing.test.ts",
 	"api/modules/scans/tools/tool-process-runner.test.ts",
 	"api/modules/scans/tools/docker-tool-invocation-policy.test.ts",
+	"api/modules/scans/tools/docker-tool-repo-access.test.ts",
 ];

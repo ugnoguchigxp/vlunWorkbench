@@ -51,11 +51,9 @@ export function resolveScanExecutionPolicy(params: {
 		? params.requestedRunner
 		: undefined;
 	const hostExecutionAllowed =
-		params.env.allowHostScannerExecution ?? params.env.nodeEnv !== "production";
-	const runner =
-		configuredRunner ??
-		requestedRunner ??
-		(params.env.nodeEnv === "production" ? "docker" : "host");
+		params.env.allowHostScannerExecution ??
+		(configuredRunner === "host" && params.env.nodeEnv !== "production");
+	const runner = configuredRunner ?? requestedRunner ?? "docker";
 	const source = configuredRunner
 		? "configured"
 		: requestedRunner

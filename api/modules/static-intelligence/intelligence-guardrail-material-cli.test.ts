@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { createWritableTestDbConnection } from "../../db/testing/connection";
 import {
 	findingEvidences,
 	findings,
@@ -16,8 +15,9 @@ import {
 	toolRuns,
 	users,
 } from "../../db/schema";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { buildStaticIntelligenceGeneration } from "./build-service";
-import { ArtifactStorage } from "../scans/artifact-storage";
 
 const NOW = new Date("2026-07-06T12:00:00.000Z");
 const RAW_SNIPPET_MARKER = "RAW_SNIPPET_SHOULD_NOT_LEAK";

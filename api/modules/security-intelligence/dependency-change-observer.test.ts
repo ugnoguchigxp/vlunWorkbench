@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { ProfileToolEntry } from "../../../shared/schemas/scan-profile.schema";
-import { buildDiffScanPlan } from "../scans/diff-scan-plan";
-import type { ResolvedGitDiff } from "../scans/git-diff-resolver";
+import { buildDiffScanPlan } from "../scans/execution/diff/diff-scan-plan";
+import type { ResolvedGitDiff } from "../scans/execution/diff/git-diff-resolver";
 import { observeDependencyChange } from "./dependency-change-observer";
 
 const tools: ProfileToolEntry[] = [

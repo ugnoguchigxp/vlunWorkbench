@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { normalizeTrivy } from "../modules/scans/normalizers/trivy";
+import { normalizeTrivy } from "../modules/scans/findings/normalizers/trivy";
 import { TrivyRunner } from "../modules/scans/tools/trivy-runner";
 import { executeScannerCli } from "./scan-cli-lifecycle";
 

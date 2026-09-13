@@ -1,3 +1,4 @@
+import { sanitizeUntrustedHtml } from "../../../../shared/html-sanitization";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -18,7 +19,7 @@ const allowedTags = [
 const allowedSchemes = ["http", "https", "mailto"];
 
 const sanitizeInlineHtml = (value: string): string =>
-	sanitizeHtml(value, {
+	sanitizeUntrustedHtml(value, sanitizeHtml, {
 		allowedTags,
 		allowedAttributes: {
 			a: ["href", "name", "rel", "target", "title"],

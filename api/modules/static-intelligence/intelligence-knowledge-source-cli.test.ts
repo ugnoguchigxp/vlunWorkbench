@@ -5,10 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { projects, scanReviews, scanRuns, users } from "../../db/schema";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { buildStaticIntelligenceGeneration } from "./build-service";
-import { ArtifactStorage } from "../scans/artifact-storage";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
 const RAW_MARKER = "SECRET_REVIEW_BODY_SHOULD_NOT_LEAK";

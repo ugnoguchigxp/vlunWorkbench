@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { normalizeGitleaks } from "../modules/scans/normalizers/gitleaks";
+import { normalizeGitleaks } from "../modules/scans/findings/normalizers/gitleaks";
 import { GitleaksRunner } from "../modules/scans/tools/gitleaks-runner";
 import { executeScannerCli } from "./scan-cli-lifecycle";
 

@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { ArtifactStorage } from "../api/modules/scans/artifact-storage";
+import { ArtifactStorage } from "../api/modules/scans/execution/lifecycle/artifact-storage";
 
 type Evidence = {
 	ok: boolean;

@@ -11,6 +11,7 @@ import {
 	LlmProviderFactoryError,
 } from "./llmProviderFactory";
 import type { LlmRouteFailureKind, LlmRouteResolution } from "./llmTaskTypes";
+import { observeProvider } from "./observed-provider";
 
 export type LlmRouteOverride = Partial<LlmModelTarget>;
 
@@ -136,7 +137,7 @@ export class LlmRouter {
 					ok: true,
 					task,
 					target: effectiveTarget,
-					provider,
+					provider: observeProvider(provider),
 					providerName: `${endpoint.kind}:${endpoint.id}`,
 					model: target.model,
 				};

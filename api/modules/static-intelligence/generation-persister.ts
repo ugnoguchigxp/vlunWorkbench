@@ -17,7 +17,7 @@ import { scanArtifacts } from "../../db/schema";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
-} from "../scans/artifact-storage";
+} from "../scans/execution/lifecycle/artifact-storage";
 import {
 	type PersistedStaticIntelligenceGeneration,
 	type PersistStaticIntelligenceGenerationInput,

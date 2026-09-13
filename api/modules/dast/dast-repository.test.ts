@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { users } from "../../db/schema";
 import { ProjectRepository, ScanRepository } from "../scans/repositories";
@@ -179,5 +179,116 @@ describe("DastRepository", () => {
 				"browser-smoke",
 			),
 		).toEqual(expect.objectContaining({ id: second.id }));
+	});
+
+	it("updates target, profile, and run records and returns null for missing ids", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "DAST updates",
+			repoPath: "/tmp/dast-updates",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "dast:http-baseline",
+			status: "running",
+			createdByUserId: userId,
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+			createdByUserId: userId,
+		});
+		const profile = await dastRepo.createProfileConfig({
+			projectId: project.id,
+			targetConfigId: target.id,
+			profileId: "http-baseline",
+			displayName: "HTTP Baseline",
+			routePathsJson: ["/"],
+		});
+		const run = await dastRepo.createRun({
+			projectId: project.id,
+			scanRunId: scanRun.id,
+			targetConfigId: target.id,
+			profileConfigId: profile.id,
+			profileId: "http-baseline",
+			dastKind: "http",
+			targetOrigin: target.normalizedOrigin,
+			runnerOrigin: target.normalizedOrigin,
+			status: "running",
+			createdByUserId: userId,
+		});
+
+		expect(
+			(await dastRepo.updateTargetConfig(target.id, {
+				name: "renamed",
+				origin: "http://127.0.0.1:4000",
+				enabled: false,
+				maxRequests: 9,
+			}))?.normalizedOrigin,
+		).toBe("http://127.0.0.1:4000");
+		expect((await dastRepo.getTargetConfig(target.id))?.name).toBe("renamed");
+		expect(await dastRepo.updateTargetConfig("missing", { name: "x" })).toBeNull();
+
+		expect(
+			(await dastRepo.updateProfileConfig(profile.id, {
+				displayName: "Updated",
+				enabled: false,
+				timeoutSec: 30,
+			}))?.displayName,
+		).toBe("Updated");
+		expect((await dastRepo.getProfileConfig(profile.id))?.enabled).toBe(false);
+		expect(await dastRepo.updateProfileConfig("missing", { enabled: true })).toBe(
+			null,
+		);
+		expect(
+			await dastRepo.getProfileConfigForTarget(
+				project.id,
+				"missing",
+				"http-baseline",
+			),
+		).toBeNull();
+
+		expect(
+			(await dastRepo.updateRunStatus(run.id, "completed", {
+				outcome: "completed",
+				verdict: "no_findings_observed",
+				coverageStatus: "covered",
+				coverageSummary: {
+					knownRouteCount: 1,
+					actionableKnownRouteCount: 1,
+					plannedRouteCount: 1,
+					attemptedRouteCount: 1,
+					successfulRouteCount: 1,
+					failedRouteCount: 0,
+					blockedRouteCount: 0,
+					notTestedRouteCount: 0,
+					requiredSeedCoverage: 1,
+					actionableRouteCoverage: 1,
+					requestCount: 1,
+					responseBytesRead: 12,
+					maxDepthReached: 0,
+					transportErrorCount: 0,
+					timeoutCount: 0,
+					authFailureCount: 0,
+					budgetExhausted: false,
+					limitationCodes: [],
+				},
+				limitationCodes: [],
+				policyId: "http-baseline",
+				policyHash: "hash",
+				summary: "done",
+				errorMessage: null,
+				metadata: { note: "ok" },
+			}))?.status,
+		).toBe("completed");
+		expect((await dastRepo.getRun(run.id))?.outcome).toBe("completed");
+		expect(await dastRepo.updateRunStatus("missing", "failed")).toBeNull();
+		expect(await dastRepo.replaceRouteInventory({
+			dastRunId: run.id,
+			projectId: project.id,
+			scanRunId: scanRun.id,
+			entries: [],
+		})).toEqual([]);
 	});
 });

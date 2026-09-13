@@ -1,5 +1,5 @@
 import type { SemgrepRuleContribution } from "../../modules/project-capabilities/plugin-contract";
-import { normalizeSemgrep } from "../../modules/scans/normalizers/semgrep";
+import { normalizeSemgrep } from "../../modules/scans/findings/normalizers/semgrep";
 import type { StaticScannerAdapter } from "../../modules/scans/static-scanner-adapter";
 import { SemgrepRunner } from "../../modules/scans/tools/semgrep-runner";
 import { builtInTechnologyPluginRegistry } from "../builtin";
@@ -32,6 +32,8 @@ function semgrepRuleContributionsFrom(
 export const semgrepScannerAdapter: StaticScannerAdapter = {
 	manifest: {
 		id: "semgrep",
+		capabilities: ["source_sast"],
+		sourceSastRulesetId: "curated-sast-v1",
 		displayName: "Semgrep Static Analysis (optional)",
 		binaryName: "semgrep",
 		upstreamLicense: "LGPL-2.1-or-later",

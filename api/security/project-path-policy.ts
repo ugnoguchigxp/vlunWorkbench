@@ -152,7 +152,7 @@ export async function authorizeProjectPathWithinRoots(params: {
 	if (!allowedRoot) {
 		throw new ProjectPathPolicyError(
 			"PROJECT_PATH_NOT_ALLOWED",
-			"The requested project path is outside the configured client roots.",
+			"Project path is outside the allowed roots. Configure PROJECT_ALLOWED_ROOTS and any client-specific roots before scanning.",
 		);
 	}
 

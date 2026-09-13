@@ -395,3 +395,13 @@ bun run docs:check
 ## ライセンス
 
 vulnWorkbench本体は[MIT License](LICENSE.md)で公開しています。連携する各スキャナーとDockerイメージには、それぞれのライセンスが適用されます。
+
+
+### プロジェクトへのアクセスと運用資料
+
+登録・スキャン前に、`PROJECT_ALLOWED_ROOTS` に許可するプロジェクトの絶対パスをカンマ区切りで設定してください。空の場合はアクセスを拒否します。保存済みの証跡は閲覧できます。MCP・連携クライアントの許可範囲は、この設定に加えて適用されます。スキャナーの既定はDockerです。明示的なhost設定は引き続き有効です。
+
+- [環境変数一覧](spec/generated/environment.md)（`bun run env:reference`）
+- [導入・障害対応・復旧手順](spec/decisions/operator-onboarding.html)
+- [検出能力の測定範囲と残る制約](spec/evidence/capability-measurement-notes.html)
+- コマンド一覧: `bun run commands`（全件: `bun run commands -- --all`）

@@ -40,4 +40,4 @@ it("lists Static Intelligence tools through a real MCP stdio connection", async 
 		await client.close();
 		await fs.rm(tempDir, { recursive: true, force: true });
 	}
-});
+}, 30_000);

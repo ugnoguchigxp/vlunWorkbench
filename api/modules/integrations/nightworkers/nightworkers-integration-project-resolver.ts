@@ -1,8 +1,8 @@
 import path from "node:path";
+import { authorizeConfiguredProjectPath } from "../../../security/configured-project-path";
 import {
 	authorizeProjectPathWithinRoots,
 	ProjectPathPolicyError,
-	resolveProjectPath,
 } from "../../../security/project-path-policy";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
 import type { ProjectRepository } from "../../scans/repositories";
@@ -30,7 +30,7 @@ export async function resolveNightworkersProject(params: {
 	}
 	let canonicalPath: string;
 	try {
-		canonicalPath = (await resolveProjectPath(params.projectPath))
+		canonicalPath = (await authorizeConfiguredProjectPath(params.projectPath))
 			.canonicalPath;
 		if (params.client.allowedRoots.length > 0) {
 			await authorizeProjectPathWithinRoots({

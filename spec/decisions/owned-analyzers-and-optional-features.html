@@ -1,0 +1,52 @@
+<article lang="ja">
+  <h1 id="owned-analyzers-and-optional-features">独自解析と補助機能の保守方針</h1>
+  <p>決定日: 2026-09-13。改善計画P05・P07・P12・P13・P14・P15に対応する。</p>
+  <h2 id="java">独自Java解析をadapter内部の検出処理として維持する</h2>
+  <p>
+    Javaの定数・taint・helper解析は単なる外部CLI呼出し以上の責任を持つ。Semgrepの候補結果に対する自社所有の解析として維持し、対応構文と結果をfixtureで検証する。所有先はScannerAdaptersであり、coverage・reportへJava固有分岐を移さない。独立した汎用SASTサービスとしてのAPIや別packageは現時点で必要なく、tools内の責務を文書化する。
+  </p>
+  <p>
+    既存Java独立fixtureに加え、WebGoatの固定コミットに対するSQL
+    sink評価を追加する。コーパスのラベル・hash・最低基準を測定前に固定し、後から基準を下げない。Spring入力を含む外部コードの結果はOWASP
+    Benchmarkと別掲する。この評価集合でルール調整を始める場合は開発集合へ変更し、別の評価集合を用意する。担当はmaintainer、代替担当は未割当。
+  </p>
+  <h2 id="legacy">knowledge・search・chatは維持して依存を明示する</h2>
+  <p>
+    hono-runtimeはSourceRetrieverを構成し、hono-routesはsources/search/agentic-search/chatを公開する。Appはknowledge
+    navigationを共有し、MCPも検索を利用する。これらはREADMEにある補助機能であり、廃止の利用根拠がない。routeだけを消すフラグや別packageへの移動は実施しない。新しいscan機能から依存を追加せず、scanのテストは外部検索資格情報なしで実施する。
+  </p>
+  <p>
+    再検討条件:
+    利用者による無効化要求、provider初期化の実測負荷、独立配布の必要が確認されたとき。無効化を実装する場合はroute・UI・retriever初期化を一括で切り替え、データを削除せず復帰できる設計とする。
+  </p>
+  <h2 id="metrics">ログを先行し、metrics endpointは見送る</h2>
+  <p>
+    scanイベントは既存の永続化を正とし、重要イベントを共通JSON
+    loggerへ送る。WriterのqueueDepthは既存healthを使う。現行の一台ローカル運用ではscrape利用者・保存先・認証方式が確定していないため、新しいmetrics
+    endpointは追加しない。常時監視が必要になった時にbounded labelと再起動時のcounter契約を決める。
+  </p>
+  <h2 id="dynamic">固定shell wrapperを維持する</h2>
+  <p>
+    dynamic
+    executorのshell文字列は固定であり、コマンドはargv、patternは環境変数として渡す。findはsymlinkを追跡せず、対象ファイルは引数として渡し、cpは引用と--を使う。外部データをコードへ補間するevalはない。全面的なsh禁止やdocker
+    cp置換は境界を自動的に強めず、出力量・timeout・volume後片付けの再実装を増やすため行わない。
+  </p>
+  <p>
+    既存artifact
+    path/size検証とexecutorテストを維持し、将来shell本体に入力を補間する変更は拒否する。新しいartifact収集要件が出た場合に専用helperへ切り出す。シェル注入を発見・修正したという主張はしない。
+  </p>
+  <h2 id="api">Project APIで共有schemaを試す</h2>
+  <p>
+    既存Hono・共有Zod schemaとbrowserのrequestJsonを維持し、projectのwire
+    responseを共有schemaで検証する。認証refreshとunauthorized処理はcoreに残す。外部クライアント向けの完全なOpenAPI公開要求はないため、全routeのzod-openapi移行は見送る。route台帳は呼出しの位置を示す補助資料で、markerの存在を認可の証明に使わない。
+  </p>
+  <h2 id="compatibility">旧importとリポジトリ名</h2>
+  <p>
+    内部importは能力所有先へ移行する。旧パスの再exportは外部のsource
+    importに対する互換層としてdeprecatedを明記して保持する。利用者側の参照確認ができないため即時削除を避ける。削除の再検討条件は内部参照ゼロの継続と、外部利用者への移行案内・確認である。
+  </p>
+  <p>
+    表示名はvulnWorkbenchへ統一し、既存remoteのvlunWorkbenchというパスは保持する。GitHub
+    renameは外部URLに影響するため今回行わない。CODEOWNERS・自動レビュー・定期workflowはユーザー指定の対象外。
+  </p>
+</article>

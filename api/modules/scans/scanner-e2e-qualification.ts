@@ -12,8 +12,8 @@ import {
 	scannerE2EQualificationV2Schema,
 } from "../../../shared/schemas/scanner-e2e-qualification-v2.schema";
 import { scannerE2ECaseRegistryV2Schema } from "../../../shared/schemas/scanner-e2e-v2.schema";
-import { canonicalJson } from "./diff-scan-plan";
-import { hashPreflightValue } from "./scan-preflight-binding";
+import { canonicalJson } from "./execution/diff/diff-scan-plan";
+import { hashPreflightValue } from "./execution/scan-preflight-binding";
 
 export type ScannerE2EQualificationCheck = {
 	ready: boolean;

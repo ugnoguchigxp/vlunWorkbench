@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { scanRuns } from "../db/schema";
-import { FindingGroupingRunner } from "../modules/scans/finding-grouping-runner";
+import { FindingGroupingRunner } from "../modules/scans/findings/finding-grouping-runner";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));

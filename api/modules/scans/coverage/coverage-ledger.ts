@@ -9,13 +9,14 @@ import {
 	type CoverageLedgerEntry,
 	coverageLedgerSchema,
 } from "../../../../shared/schemas/scan-coverage-ledger.schema";
-import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import type { ScanExecutionPlan } from "../../../../shared/schemas/scan-execution-plan.schema";
+import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import {
 	type ScanReasonCode,
 	scanReasonCodeSchema,
 } from "../../../../shared/schemas/scan-reason-code.schema";
 import type { ScanProfileStepResult } from "../execution/profile-runner";
+import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
 
 export type {
 	CoverageLedger,
@@ -31,20 +32,20 @@ type PlannedStep = ScanExecutionPlan["steps"][number];
 
 const CAPABILITY_BINDINGS: Record<ScanCapabilityId, CapabilityBinding> = {
 	secret_detection: {
-		stepIds: ["gitleaks"],
+		stepIds: [],
 		missingReasonCode: "capability_not_integrated",
 	},
 	source_sast: {
-		stepIds: ["semgrep"],
+		stepIds: [],
 		missingReasonCode: "source_sast_not_executed",
 	},
 	cicd_workflow_integrity: {
-		stepIds: ["zizmor"],
+		stepIds: [],
 		missingReasonCode: "capability_not_integrated",
 	},
-	sca: { stepIds: ["osv"], missingReasonCode: "capability_not_integrated" },
+	sca: { stepIds: [], missingReasonCode: "capability_not_integrated" },
 	iac_config: {
-		stepIds: ["trivy"],
+		stepIds: [],
 		missingReasonCode: "capability_not_integrated",
 	},
 	sbom: {
@@ -104,7 +105,17 @@ const CAPABILITY_BINDINGS: Record<ScanCapabilityId, CapabilityBinding> = {
 
 /** Shared binding source for parent orchestration; callers must not re-encode it. */
 export function capabilityStepIds(capabilityId: ScanCapabilityId): string[] {
-	return [...CAPABILITY_BINDINGS[capabilityId].stepIds];
+	return [
+		...new Set([
+			...staticScannerAdapterRegistry
+				.list()
+				.filter((adapter) =>
+					adapter.manifest.capabilities?.includes(capabilityId),
+				)
+				.map((adapter) => adapter.manifest.id),
+			...CAPABILITY_BINDINGS[capabilityId].stepIds,
+		]),
+	];
 }
 
 export function buildCoverageLedger(params: {
@@ -158,10 +169,12 @@ function buildEntry(
 	resultsByStepId: Map<string, ScanProfileStepResult>,
 ): CoverageLedgerEntry {
 	const binding = CAPABILITY_BINDINGS[requirement.capabilityId];
-	const matchingSteps = binding.stepIds.flatMap((stepId) => {
-		const step = plannedStepsById.get(stepId);
-		return step ? [step] : [];
-	});
+	const matchingSteps = capabilityStepIds(requirement.capabilityId).flatMap(
+		(stepId) => {
+			const step = plannedStepsById.get(stepId);
+			return step ? [step] : [];
+		},
+	);
 	if (matchingSteps.length === 0) {
 		return {
 			capabilityId: requirement.capabilityId,

@@ -3,6 +3,7 @@ import {
 	parseFocusPath,
 	parseIntelligenceViewId,
 	parseModuleId,
+	parseOptionalFocusPath,
 	parseOptionalIntelligenceViewId,
 	parseOptionalModuleId,
 } from "./project-intelligence-tab-model";
@@ -35,7 +36,9 @@ describe("project Intelligence tab model", () => {
 
 	it("normalizes optional focus paths", () => {
 		expect(parseFocusPath("  src/app.ts  ")).toBe("src/app.ts");
+		expect(parseOptionalFocusPath("src/app.ts")).toBe("src/app.ts");
 		expect(parseFocusPath(" ")).toBeNull();
+		expect(parseOptionalFocusPath(" ")).toBeUndefined();
 		expect(parseFocusPath("a".repeat(1_025))).toBeNull();
 	});
 
@@ -44,5 +47,8 @@ describe("project Intelligence tab model", () => {
 		expect(parseOptionalModuleId("module:api")).toBe("module:api");
 		expect(parseModuleId(" ")).toBeNull();
 		expect(parseModuleId("a".repeat(257))).toBeNull();
+		expect(parseOptionalModuleId(" ")).toBeUndefined();
+		expect(parseFocusPath(12)).toBeNull();
+		expect(parseModuleId(12)).toBeNull();
 	});
 });

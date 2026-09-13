@@ -1,13 +1,13 @@
 import crypto from "node:crypto";
 import {
-	applicationModelSchema,
 	type ApplicationModel,
+	applicationModelSchema,
 	type ModelEvidenceRef,
 } from "../../../shared/schemas/application-model.schema";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
 import {
-	extractEndpoints,
 	type ExtractedEndpoint,
+	extractEndpoints,
 	type SourceInput,
 } from "./endpoint-extractors";
 

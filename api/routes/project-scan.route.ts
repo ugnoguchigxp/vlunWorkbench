@@ -12,21 +12,21 @@ import type { RuntimeIsolationProviderFactory } from "../modules/runtime-isolati
 import {
 	buildDiffScanPlan,
 	toDiffScanPreview,
-} from "../modules/scans/diff-scan-plan";
-import type { materializeScopedSourceSnapshot } from "../modules/scans/execution/lifecycle/full-source-snapshot";
-import type { resolveFullScanTarget } from "../modules/scans/full-scan-target";
+} from "../modules/scans/execution/diff/diff-scan-plan";
 import {
 	GitDiffResolutionError,
 	resolveGitDiff,
-} from "../modules/scans/git-diff-resolver";
-import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
-import { resolveProfileSteps } from "../modules/scans/profile-runner";
-import type { ProjectRepository } from "../modules/scans/repositories";
-import { scanProfileStepId } from "../modules/scans/scan-execution-plan-builder";
+} from "../modules/scans/execution/diff/git-diff-resolver";
+import type { resolveFullScanTarget } from "../modules/scans/execution/full-scan-target";
+import type { materializeScopedSourceSnapshot } from "../modules/scans/execution/lifecycle/full-source-snapshot";
+import { scanProfileStepId } from "../modules/scans/execution/scan-execution-plan-builder";
 import {
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
-} from "../modules/scans/scan-execution-policy";
+} from "../modules/scans/execution/scan-execution-policy";
+import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
+import { resolveProfileSteps } from "../modules/scans/profile-runner";
+import type { ProjectRepository } from "../modules/scans/repositories";
 import { createProjectScanPreflightRoute } from "./project-scan-preflight.route";
 import {
 	appendScanTargetArgs,
@@ -154,7 +154,7 @@ export function createProjectScanRoutes(context: ProjectScanRouteContext) {
 						.positive()
 						.max(ABSOLUTE_WEB_SCAN_STEP_TIMEOUT_MAX_SEC)
 						.optional(),
-					runner: z.enum(["host", "docker"]).default("host").optional(),
+					runner: z.enum(["host", "docker"]).optional(),
 					imageRef: z.string().optional(),
 					imageTar: z.string().optional(),
 					attestationSubject: z.string().min(1).max(500).optional(),

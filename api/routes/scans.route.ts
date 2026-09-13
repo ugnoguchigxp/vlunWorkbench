@@ -15,28 +15,28 @@ import { HttpError } from "../modules/auth/errors";
 import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
-import type { ArtifactStorage } from "../modules/scans/artifact-storage";
+import type { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import type { ScanDeletionService } from "../modules/scans/execution/lifecycle/scan-deletion-service";
+import type { ScanProcessSupervisor } from "../modules/scans/execution/scan-process-supervisor";
 import { projectScanProgress } from "../modules/scans/execution/scan-progress-projector";
-import { FindingGroupingRunner } from "../modules/scans/finding-grouping-runner";
+import { FindingGroupingRunner } from "../modules/scans/findings/finding-grouping-runner";
 import {
 	buildFindingTextExport,
 	buildFindingTextExportFilename,
 } from "../modules/scans/findings/finding-text-export";
-import { buildGroupedFindings } from "../modules/scans/grouping-builder";
-import type { ScanReportRepository } from "../modules/scans/report-repository";
+import { buildGroupedFindings } from "../modules/scans/findings/grouping-builder";
+import { ScanDiagnosticRepository } from "../modules/scans/handoff/scan-diagnostic-repository";
+import type { ScanDiagnosticRunner } from "../modules/scans/handoff/scan-diagnostic-runner";
+import { ScanImprovementRequestRunner } from "../modules/scans/handoff/scan-improvement-request-runner";
+import { ScanReviewRepository } from "../modules/scans/handoff/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/handoff/scan-review-runner";
+import type { ScanReportRepository } from "../modules/scans/reporting/report-repository";
 import type {
 	ArtifactRepository,
 	FindingRepository,
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import type { ScanDeletionService } from "../modules/scans/scan-deletion-service";
-import { ScanDiagnosticRepository } from "../modules/scans/scan-diagnostic-repository";
-import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
-import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-request-runner";
-import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
-import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
-import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
 import type { LlmRouter } from "../providers/llmRouter";
 
@@ -391,7 +391,13 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const authUser = getAuthContextUser(c);
 			const scanRunId = c.req.param("scanRunId");
 			await checkScanOwnership(scanRunId, authUser.userId);
-			const rawInput = await c.req.json().catch(() => ({}));
+			const bodyText = await c.req.text();
+			let rawInput: unknown = {};
+			try {
+				rawInput = bodyText.trim() ? JSON.parse(bodyText) : {};
+			} catch {
+				throw new HttpError(400, "Invalid JSON request body");
+			}
 			const parsedInput = createScanReviewSchema.safeParse(rawInput);
 			if (!parsedInput.success) {
 				throw new HttpError(400, "Invalid scan review request.");

@@ -1,10 +1,8 @@
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { projects } from "../db/schema";
-import {
-	ProjectPathPolicyError,
-	resolveProjectPath,
-} from "../security/project-path-policy";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
+import { ProjectPathPolicyError } from "../security/project-path-policy";
 
 type ProjectPathAuditStatus = "allowed" | "blocked" | "missing";
 
@@ -22,7 +20,10 @@ async function main(): Promise<void> {
 		const audited = await Promise.all(
 			rows.map(async (project) => {
 				try {
-					const resolved = await resolveProjectPath(project.repoPath);
+					const resolved = await authorizeConfiguredProjectPath(
+						project.repoPath,
+						env.projectAllowedRoots,
+					);
 					return {
 						...project,
 						status: "allowed" as const,

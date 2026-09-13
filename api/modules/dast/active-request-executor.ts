@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { ActiveRequest } from "../../../shared/schemas/active-assessment.schema";
 import type { DastAuthSecretPayload } from "../../../shared/schemas/dast-auth.schema";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
 import type { ActiveAssessmentRepository } from "./active-assessment-repository";
 import { authHeadersFor } from "./auth-material";
 import type { DastFetch } from "./http-runner";

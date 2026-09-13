@@ -81,6 +81,14 @@ describe("DAST auth route", () => {
 
 	afterEach(() => connection.sqlite.close());
 
+	it("rejects malformed JSON without creating a record", async () => {
+		const project = await projectRepository.createProject({ ownerUserId, name: "Malformed body fixture", repoPath: "/tmp/malformed-body-fixture" });
+		const response = await app.request(`/api/projects/${project.id}/dast-auth-contexts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{" });
+		expect(response.status).toBe(400);
+		const listed = await app.request(`/api/projects/${project.id}/dast-auth-contexts`);
+		expect((await listed.json()).authContexts).toEqual([]);
+	});
+
 	it("never returns or stores the credential canary in plaintext", async () => {
 		const project = await projectRepository.createProject({
 			ownerUserId,

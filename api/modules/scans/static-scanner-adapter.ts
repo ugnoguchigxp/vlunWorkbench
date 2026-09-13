@@ -1,3 +1,4 @@
+import type { ScanCapabilityId } from "../../../shared/schemas/scan-capability.schema";
 import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
 import type { ArtifactStorage } from "./execution/lifecycle/artifact-storage";
 import type {
@@ -15,6 +16,8 @@ export type CoreScannerLicense = (typeof CORE_SCANNER_LICENSES)[number];
 
 type StaticScannerAdapterManifestBase = {
 	readonly id: string;
+	readonly capabilities?: readonly ScanCapabilityId[];
+	readonly sourceSastRulesetId?: string;
 	readonly displayName: string;
 	readonly binaryName: string;
 	readonly dockerAllowedFirstArgs: readonly string[];

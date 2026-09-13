@@ -3,6 +3,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { users } from "../../db/schema";
+import { authorizeConfiguredProjectPath } from "../../security/configured-project-path";
 import { runBoundedProcess } from "../processes/bounded-process-runner";
 import { ProjectRepository } from "./repositories";
 
@@ -99,6 +100,7 @@ export async function resolveProjectByPath(
 	options: { createProject?: boolean } = {},
 ): Promise<ResolvedProjectByPath> {
 	const repoPath = await normalizeProjectPath(projectPath);
+	await authorizeConfiguredProjectPath(repoPath);
 	const projectRepo = new ProjectRepository(db);
 	const existing = await projectRepo.findAnyByRepoPath(repoPath);
 	if (existing) {

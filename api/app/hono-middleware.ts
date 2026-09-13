@@ -1,3 +1,5 @@
+import { logEvent, withLogContext } from "./logger";
+import { withProjectPathRoots } from "../security/configured-project-path";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Hono } from "hono";
@@ -12,11 +14,15 @@ import { requireAuth } from "../middleware/auth";
 import { rateLimiter } from "../middleware/rate-limiter";
 import { HttpError } from "../modules/auth/errors";
 import { IntegrationClientAuthenticationError } from "../modules/integrationClients/integration-client.service";
+import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { shouldLogAppError } from "./error-logging";
 
 import type { AppRuntime } from "./hono-runtime";
 
 export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
+	app.use("*", async (_c, next) =>
+		withProjectPathRoots(runtime.env.projectAllowedRoots ?? [], next),
+	);
 	const distWebRoot = path.resolve(process.cwd(), "dist-web");
 	const _distWebIndex = path.resolve(distWebRoot, "index.html");
 	const useHttpsSecurityHeaders =
@@ -31,7 +37,7 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 		imgSrc: ["'self'", "data:", "blob:"],
 		objectSrc: ["'none'"],
 		scriptSrc: ["'self'"],
-		styleSrc: ["'self'", "'unsafe-inline'"],
+		styleSrc: ["'self'"],
 		workerSrc: ["'self'", "blob:"],
 	};
 	const secureHeaderOptions = useHttpsSecurityHeaders
@@ -69,7 +75,7 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 		const startedAt = performance.now();
 		c.header("X-Request-Id", requestId);
 		try {
-			await next();
+			await withLogContext({ requestId }, next);
 		} finally {
 			if (isSecurityIntelligenceRequest) {
 				addVaryAuthorization(c.res.headers);
@@ -247,7 +253,12 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 	});
 	app.onError(async (error, c) => {
 		if (shouldLogAppError(error)) {
-			console.error(error);
+			logEvent({
+				level: "error",
+				event: "http.request.failed",
+				requestId: c.res.headers.get("X-Request-Id") ?? undefined,
+				errorCode: "http_request_failed",
+			});
 		}
 		const dbError = error as { code?: string; message?: string };
 		if (
@@ -264,6 +275,9 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 				},
 				500,
 			);
+		}
+		if (error instanceof ProjectPathPolicyError) {
+			return c.json({ message: error.message, code: error.code }, 400);
 		}
 		if (error instanceof HttpError) {
 			return c.json(

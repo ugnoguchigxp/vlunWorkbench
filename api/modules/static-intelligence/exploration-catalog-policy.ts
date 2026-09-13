@@ -11,7 +11,7 @@ import {
 	projectExplorationCatalogResultSchema,
 	projectExplorationCatalogV2ResultSchema,
 } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
-import { redactSecrets } from "../scans/normalizers/redaction";
+import { redactSecrets } from "../scans/findings/normalizers/redaction";
 import type { buildStaticIntelligenceModuleCandidates } from "./module-candidates";
 
 const TARGET_RESPONSE_BYTES = 8 * 1024;

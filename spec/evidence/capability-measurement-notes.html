@@ -1,0 +1,54 @@
+<article lang="ja">
+  <h1 id="capability-measurement-notes">検出能力の測定範囲と残存リスク</h1>
+  <p>更新日: 2026-09-13。過去の測定、今回の独立評価、現在の実装検証を区別する。</p>
+  <h2 id="versioned">保存済みLinux基準測定</h2>
+  <p>
+    2026-09-06、commit 16f398d626a89f92ec1b6872bb3a5df69ecd56c3の測定を保存した。source
+    tree、固定image、実行コマンド、artifact hashは<a
+      href="./capability-baseline-2026-09-06-manifest.json"
+      >manifest</a
+    >、数値とgateは<a href="./capability-baseline-2026-09-06.json">測定結果</a
+    >を参照する。採録時にmanifestの16
+    artifactをローカル保存ファイルと照合し、すべて一致した。これは対象コミットの固定fixture・コーパスに対する結果で、今回の未コミット変更や一般的な脆弱性検出能力の認証ではない。
+  </p>
+  <p>
+    READMEにあるPhase 55のrecall 0.7993 / precision
+    0.9536は8月の別実行であり、改変せず保存する。版管理済みであってもその実行のworkingTreeCleanはfalseだった。9月6日の実行はclean/Linuxで、OSV・Juice
+    Shop等のgateを満たしている。ローカルで最新という理由だけでREADMEの数値を置換しない。
+  </p>
+  <h2 id="gates">未達理由の読み方</h2>
+  <ul>
+    <li>
+      過去のOSV gate
+      falseは、fixtureテスト成功だけでは解消しない。実DB供給、対応ecosystem全件、脆弱版と修正版、networkなし、入力・実装のhash一致が必要。8月の集約JSONだけでは不足した個別条件までは復元できず、未検出件数を推測しない。
+    </li>
+    <li>
+      過去のJuice Shopは測定completedでもauthoritative
+      Linuxがfalseだった。実行環境、playbook全件、固定対照、reset、外部通信、証跡整合を含めて判定する。recallだけをもって合格としない。
+    </li>
+    <li>
+      再測定はspec/security-capability/verification.mdに従う。DB期限やinput
+      hashを実行日時だけで更新して合格させない。未実行・入力欠落・cleanup失敗を成功件数に含めない。
+    </li>
+  </ul>
+  <h2 id="external-java">外部Java評価</h2>
+  <p>
+    WebGoat commit 685a4b9df91fb456fc74628343d01615cd29a66aの2ファイルにあるSQL
+    sinkを4件ラベル付けした。manifestはspec/security-capability/java-external-holdout.v1.json。コードはGPL-2.0-or-laterで、upstreamの著作権表示を保ったままignored
+    cacheへ取得する。製品のソースとして同梱しない。
+  </p>
+  <p>
+    再現コマンド:
+    <code>bun run benchmark:java-holdout -- --prepare</code
+    >。初回取得後は同じコマンドから--prepareを外してネットワークなしで評価できる。明示的なhost
+    Semgrep評価であり、Javaアプリを起動しない。最低基準を満たすかも終了コードへ反映したい場合は--require-thresholdを付ける。
+  </p>
+  <p>
+    <a href="./java-external-2026-09-13.json">2026-09-13の評価結果</a
+    >ではTP=0、FN=2、FP=0、TN=2、recall=0、precisionは分母ゼロのためnull。最低基準未達を保持する。Spring入力やhelper経由のSQLがこの集合で検出されず、OWASPでの高い値をそのまま実コードへ一般化できない。対象はラベル付けしたsinkだけで、WebGoat全体のrecall/precisionではない。
+  </p>
+  <p>
+    残存リスク:
+    未対応framework・構文・データフロー、ラベル外のfinding、コーパスの偏り。検出ゼロを安全と判断せず、必要な箇所は人間によるコードレビューと別の検出器で補う。今回の目的は限界を測ることであり、この評価集合に合わせた検出器の調整は行わない。
+  </p>
+</article>

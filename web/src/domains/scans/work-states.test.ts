@@ -405,4 +405,69 @@ describe("work states", () => {
 		});
 		expect(ready).toContainEqual(expect.objectContaining({ state: "ready_for_report" }));
 	});
+
+	it("covers remaining evidence, verification, and scan-state branches", () => {
+		expect(
+			deriveFindingWorkState({
+				finding: finding({
+					primaryLocation: { file: "web/src/app.tsx" } as never,
+				}),
+			}),
+		).toBe("ready_for_report");
+		expect(
+			deriveFindingWorkState({
+				finding: finding({
+					primaryLocation: { uri: "file://web/src/app.tsx" } as never,
+					latestDecision: decision({ reason: "insufficient_evidence" }),
+				}),
+			}),
+		).toBe("needs_verification");
+		expect(
+			deriveFindingWorkState({
+				finding: finding({
+					latestDecision: decision({ decision: "deferred" }),
+				}),
+			}),
+		).toBe("needs_verification");
+		expect(
+			deriveFindingWorkState({
+				finding: finding({
+					latestReview: review({
+						falsePositiveAssessment: { level: "unknown", reasoning: "?" },
+					}),
+				}),
+			}),
+		).toBe("needs_verification");
+		expect(
+			deriveFindingWorkState({
+				finding: finding({
+					latestReview: review({ confidenceAdjustment: "decrease" }),
+				}),
+			}),
+		).toBe("needs_verification");
+		expect(
+			deriveScanWorkState({
+				scanRun: scanRun({ status: "running" }),
+				findings: [finding()],
+			}),
+		).toBe("diagnostics_open");
+		expect(
+			deriveScanWorkState({
+				scanRun: scanRun(),
+				findings: [finding({ primaryLocation: null, metadata: {} })],
+			}),
+		).toBe("triage_open");
+		expect(
+			buildActionQueue({
+				scanRuns: [],
+				findings: [
+					finding({
+						latestReview: review({
+							evidenceStrength: { level: "weak", reasoning: "Weak" },
+						}),
+					}),
+				],
+			}).some((item) => item.state === "needs_verification"),
+		).toBe(true);
+	});
 });

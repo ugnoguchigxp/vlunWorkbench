@@ -1,14 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { users } from "../../db/schema";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { ProjectRepository, ScanRepository } from "../scans/repositories";
-import { DastArtifactStorage } from "./dast-artifact-storage";
 import { MockBrowserAdapter } from "./browser-runner";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { DastArtifactStorage } from "./dast-artifact-storage";
 import { DastRepository } from "./dast-repository";
 import { DastRunner } from "./dast-runner";
 

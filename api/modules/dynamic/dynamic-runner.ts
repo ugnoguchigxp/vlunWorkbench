@@ -4,8 +4,8 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { projects } from "../../db/schema";
+import { authorizeConfiguredProjectPath } from "../../security/configured-project-path";
 import { materializeRuntimeSourceProjection } from "../runtime-isolation/runtime-source-projection";
-import { runGitCommand } from "../scans/execution/diff/git-command";
 import {
 	type FullSourceSnapshot,
 	materializeFullSourceSnapshot,
@@ -37,6 +37,7 @@ import {
 	resolveDynamicTimeoutSec,
 	walkDynamicArtifactFiles,
 } from "./dynamic-run-policy";
+import { resolveImmutableHead } from "./dynamic-source-revision";
 
 export interface RunDynamicOptions {
 	projectId: string;
@@ -51,20 +52,6 @@ export interface RunDynamicOptions {
 	cpus?: string;
 	toolCacheDir?: string;
 	createdByUserId?: string | null;
-}
-
-async function resolveImmutableHead(repositoryPath: string): Promise<string> {
-	const { stdout } = await runGitCommand({
-		cwd: repositoryPath,
-		args: ["rev-parse", "HEAD"],
-		timeoutMs: 30_000,
-		maxBufferBytes: 256,
-	});
-	const revision = stdout.toString("utf8").trim();
-	if (!/^[a-f0-9]{40,64}$/i.test(revision)) {
-		throw new Error("dynamic_source_revision_invalid");
-	}
-	return revision;
 }
 
 export class DynamicRunner {
@@ -111,6 +98,7 @@ export class DynamicRunner {
 		if (!project) {
 			throw new Error(`Project not found: ${options.projectId}`);
 		}
+		await authorizeConfiguredProjectPath(project.repoPath);
 
 		const profileConfig = await this.repo.getConfigByProfileId(
 			options.projectId,
@@ -188,6 +176,7 @@ export class DynamicRunner {
 		if (!project) {
 			throw new Error(`Project not found: ${options.projectId}`);
 		}
+		await authorizeConfiguredProjectPath(project.repoPath);
 		if (options.scanRunId) {
 			const parentScan = await new ScanRepository(this.db).findById(
 				options.scanRunId,

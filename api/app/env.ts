@@ -99,7 +99,7 @@ const optionalScanExecutionMode = z.preprocess((value) => {
 	return normalized.length > 0 ? normalized : undefined;
 }, z.enum(["host", "docker"]).optional());
 
-const EnvSchema = z.object({
+export const EnvSchema = z.object({
 	NODE_ENV: z
 		.enum(["development", "test", "production"])
 		.default(APP_CONFIG_DEFAULTS.nodeEnv),
@@ -162,6 +162,7 @@ const EnvSchema = z.object({
 	VULN_WORKBENCH_RUNTIME_NUCLEI_IMAGE: optionalTrimmedString,
 	VULN_WORKBENCH_RUNTIME_ZAP_IMAGE: optionalTrimmedString,
 	VULN_WORKBENCH_RUNTIME_SCHEMATHESIS_IMAGE: optionalTrimmedString,
+	PROJECT_ALLOWED_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
 		.enum(["registered_only", "create_within_allowed_roots"])
@@ -241,6 +242,7 @@ export type AppEnv = {
 	secureCookie: boolean;
 	cookieSameSite: "lax" | "strict" | "none";
 	securityHeadersMode: "auto" | "http" | "https";
+	projectAllowedRoots?: string[];
 	scanExecutionMode?: "host" | "docker";
 	allowHostScannerExecution?: boolean;
 	scanDockerImage?: string;
@@ -430,6 +432,7 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		secureCookie,
 		cookieSameSite,
 		securityHeadersMode: parsed.SECURITY_HEADERS_MODE,
+		projectAllowedRoots: parseAllowedProjectRoots(parsed.PROJECT_ALLOWED_ROOTS),
 		scanExecutionMode: parsed.SCAN_EXECUTION_MODE,
 		allowHostScannerExecution:
 			parsed.ALLOW_HOST_SCANNER_EXECUTION ?? parsed.NODE_ENV !== "production",

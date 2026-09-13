@@ -6,7 +6,7 @@ import type {
 	IntegrationSeverity,
 } from "../../../../shared/schemas/nightworkers-security-scan-integration.schema";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
-import { canonicalJson } from "../../scans/diff-scan-plan";
+import { canonicalJson } from "../../scans/execution/diff/diff-scan-plan";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 import {
 	IntegrationIdempotencyConflictError,

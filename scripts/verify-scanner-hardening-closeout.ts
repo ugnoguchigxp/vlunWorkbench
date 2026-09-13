@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { runGitText } from "../api/modules/scans/execution/diff/git-command";
 import { scannerE2EQualificationV2Schema } from "../shared/schemas/scanner-e2e-qualification-v2.schema";
-import { runGitText } from "../api/modules/scans/git-command";
 import {
 	scannerHardeningCloseoutScopeContractSchema,
 	scannerHardeningCloseoutScopeReportSchema,
@@ -13,8 +13,8 @@ import {
 	scannerHardeningCloseoutReceiptSchema,
 } from "../shared/schemas/scanner-hardening-receipt.schema";
 import { todolistScannerBaselineSchema } from "../shared/schemas/todolist-scanner-baseline.schema";
-import { canonicalJson } from "./scanner-e2e-case-registry";
 import { checkScannerHardeningCloseoutScope } from "./check-scanner-hardening-closeout-scope";
+import { canonicalJson } from "./scanner-e2e-case-registry";
 import { verifyScannerE2EFailureEvidence } from "./verify-scanner-e2e-failure-evidence";
 import { verifyScannerE2EV2Qualification } from "./verify-scanner-e2e-v2-qualification";
 import { verifyScannerHardeningCiReceipt } from "./verify-scanner-hardening-ci-receipt";

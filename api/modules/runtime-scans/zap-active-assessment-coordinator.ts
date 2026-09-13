@@ -11,8 +11,8 @@ import type { DastAuthContextRepository } from "../dast/auth-context-repository"
 import type { DastFetch } from "../dast/http-runner";
 import type { ActiveAuthorization } from "../dast/rules-of-engagement";
 import type { ValidatedDastTarget } from "../dast/types";
-import { ArtifactStorage } from "../scans/artifact-storage";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import {
 	ArtifactRepository,
 	FindingRepository,

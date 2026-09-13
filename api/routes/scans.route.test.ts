@@ -395,7 +395,7 @@ describe("Scans Route", () => {
 
 	it("GET /:scanRunId/groups returns grouped findings", async () => {
 		// Mock the module function
-		const groupingModule = await import("../modules/scans/grouping-builder");
+		const groupingModule = await import("../modules/scans/findings/grouping-builder");
 		vi.spyOn(groupingModule, "buildGroupedFindings").mockResolvedValue({
 			groups: []
 		});
@@ -404,6 +404,13 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.groups).toHaveLength(0);
+	});
+
+	it("rejects malformed review JSON before starting a review", async () => {
+		mockScanReviewRunner.start.mockClear();
+		const response = await app.request("/s-1/reviews", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{" });
+		expect(response.status).toBe(400);
+		expect(mockScanReviewRunner.start).not.toHaveBeenCalled();
 	});
 
 	it("POST /:scanRunId/reviews returns 202 without waiting for LLM completion", async () => {

@@ -24,9 +24,20 @@ try {
 			"--coverage",
 			"--coverage-reporter=lcov",
 			`--coverage-dir=${coverageDirectory}`,
+			"--timeout=30000",
 			...criticalCoverageTests,
 		],
-		{ stdout: "inherit", stderr: "inherit" },
+		{
+			stdout: "inherit",
+			stderr: "inherit",
+			env: {
+				...process.env,
+				NODE_ENV: "test",
+				PROJECT_ALLOWED_ROOTS:
+					process.env.PROJECT_ALLOWED_ROOTS ??
+					[process.cwd(), os.tmpdir()].join(","),
+			},
+		},
 	);
 	if ((await processResult.exited) !== 0) process.exit(1);
 

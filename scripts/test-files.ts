@@ -24,11 +24,19 @@ export const nodeVitestFiles = [
 ] as const;
 
 const extendedTimeoutBunTestFiles = new Set([
+	// These integration fixtures launch several Git/Writer subprocesses.
+	"api/modules/scans/execution/diff/git-diff-resolver.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
+	"api/modules/scans/execution/profile-runner.test.ts",
+	"api/operations/database-backup.test.ts",
 	"api/modules/static-intelligence/intelligence-agent-query-cli.test.ts",
 	"api/modules/static-intelligence/intelligence-exploration-catalog-cli.test.ts",
 	"api/modules/static-intelligence/intelligence-export-cli.test.ts",
 	"api/modules/static-intelligence/intelligence-guardrail-material-cli.test.ts",
 	"api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-integration.service.test.ts",
 ]);
 
 export const bunTestTimeoutMs = (file: string): number | null =>

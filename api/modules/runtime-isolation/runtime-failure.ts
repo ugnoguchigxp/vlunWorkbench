@@ -1,4 +1,4 @@
-import { redactSecrets } from "../scans/normalizers/redaction";
+import { redactSecrets } from "../scans/findings/normalizers/redaction";
 import type { RuntimeBundleRole } from "./docker-runtime-bundle";
 
 export type RuntimeBundlePhase =

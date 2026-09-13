@@ -1,0 +1,52 @@
+{
+	"schemaVersion": 1,
+	"corpus": "WebGoat SQL injection source subset",
+	"revision": "685a4b9df91fb456fc74628343d01615cd29a66a",
+	"license": "GPL-2.0-or-later",
+	"distribution": "download to ignored cache; do not bundle upstream source",
+	"evaluationPolicy": "Frozen before first measurement; do not tune detectors against these cases without moving them to development data. No whole-project recall claim.",
+	"minimumRecall": 0.8,
+	"minimumPrecision": 0.8,
+	"files": [
+		{
+			"name": "SqlInjectionLesson5.java",
+			"url": "https://raw.githubusercontent.com/WebGoat/WebGoat/685a4b9df91fb456fc74628343d01615cd29a66a/src/main/java/org/owasp/webgoat/lessons/sqlinjection/introduction/SqlInjectionLesson5.java",
+			"sha256": "455007672e023cd419069b2dcf3dee21c1f4c222ea58e3487073b1657d1a3b15"
+		},
+		{
+			"name": "SqlInjectionChallenge.java",
+			"url": "https://raw.githubusercontent.com/WebGoat/WebGoat/685a4b9df91fb456fc74628343d01615cd29a66a/src/main/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionChallenge.java",
+			"sha256": "808928166547b3a822de3f732eec50217dbd7cfe5caf0b45b9364e02867e4b1a"
+		}
+	],
+	"cases": [
+		{
+			"id": "raw-query",
+			"file": "SqlInjectionLesson5.java",
+			"line": 65,
+			"expected": true,
+			"reason": "HTTP query argument passes through injectableQuery to Statement.executeQuery."
+		},
+		{
+			"id": "bound-query",
+			"file": "SqlInjectionLesson5.java",
+			"line": 87,
+			"expected": false,
+			"reason": "Fixed SQL with positional bind parameters; no SQL structure from request input."
+		},
+		{
+			"id": "concatenated-user",
+			"file": "SqlInjectionChallenge.java",
+			"line": 62,
+			"expected": true,
+			"reason": "RequestParam username is concatenated into SQL; empty/length checks do not bind it."
+		},
+		{
+			"id": "bound-insert",
+			"file": "SqlInjectionChallenge.java",
+			"line": 72,
+			"expected": false,
+			"reason": "Request values are supplied with PreparedStatement.setString to fixed placeholders."
+		}
+	]
+}

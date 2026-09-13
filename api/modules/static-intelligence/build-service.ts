@@ -1,10 +1,8 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import type { StaticIntelligenceReadiness } from "../../../shared/schemas/static-intelligence-module.schema";
 import type { AppDatabase } from "../../db";
-import type { ArtifactStorage } from "../scans/artifact-storage";
-import { buildProjectStructureSnapshot } from "./project-structure/builder";
-import { projectStructureV2ToCodeStructureV1 } from "./project-structure/v1-projector";
-import { emitProjectStructureComparisonTelemetry } from "./project-structure/rollout";
+import type { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { buildStaticIntelligenceExportFromBundle } from "./export-builder";
 import {
 	type PersistedStaticIntelligenceGeneration,
@@ -16,9 +14,11 @@ import {
 	type StaticIntelligenceSourceRevision,
 	sha256Text,
 } from "./generation-types";
-import { StaticIntelligenceRepository } from "./repository";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
-import type { StaticIntelligenceReadiness } from "../../../shared/schemas/static-intelligence-module.schema";
+import { buildProjectStructureSnapshot } from "./project-structure/builder";
+import { emitProjectStructureComparisonTelemetry } from "./project-structure/rollout";
+import { projectStructureV2ToCodeStructureV1 } from "./project-structure/v1-projector";
+import { StaticIntelligenceRepository } from "./repository";
 
 const GIT_PROBE_TIMEOUT_MS = 30_000;
 

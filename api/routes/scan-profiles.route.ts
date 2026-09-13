@@ -1,12 +1,12 @@
 import { Hono } from "hono";
-import { listProfiles } from "../modules/scans/profiles";
+import { scanProfileStepId } from "../modules/scans/execution/scan-execution-plan-builder";
+import { resolveScanPreflightMode } from "../modules/scans/execution/scan-preflight";
 import {
 	listGenericStartCatalogProfileIds,
 	listPublicCatalogEntries,
 	resolveDefaultCatalogProfileId,
 } from "../modules/scans/profile-catalog";
-import { scanProfileStepId } from "../modules/scans/scan-execution-plan-builder";
-import { resolveScanPreflightMode } from "../modules/scans/scan-preflight";
+import { listProfiles } from "../modules/scans/profiles";
 
 export function createScanProfilesRoute() {
 	return new Hono().get("/", async (c) => {

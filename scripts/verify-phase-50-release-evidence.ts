@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { canonicalJson } from "../api/modules/scans/diff-scan-plan";
+import { canonicalJson } from "../api/modules/scans/execution/diff/diff-scan-plan";
 import {
 	measuredCapabilityClaimSchema,
 	scannerDataManifestV2Schema,

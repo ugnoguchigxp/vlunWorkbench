@@ -9,10 +9,18 @@ const baseEnv = {
 };
 
 describe("resolveScanExecutionPolicy", () => {
-	it("preserves host compatibility in development", () => {
+	it("requires docker by default in development", () => {
 		expect(
 			resolveScanExecutionPolicy({ env: baseEnv, surface: "web" }),
-		).toMatchObject({ runner: "host", source: "default", networkMode: "none" });
+		).toMatchObject({ runner: "docker", source: "default", networkMode: "none" });
+	});
+
+	it("does not allow a host request without an administrator opt-in", () => {
+		expect(() => resolveScanExecutionPolicy({ env: { ...baseEnv, allowHostScannerExecution: undefined }, surface: "web", requestedRunner: "host" })).toThrow(/Host scanner execution is disabled/);
+	});
+
+	it("preserves an explicit development host configuration", () => {
+		expect(resolveScanExecutionPolicy({ env: { ...baseEnv, scanExecutionMode: "host", allowHostScannerExecution: undefined }, surface: "cli" })).toMatchObject({ runner: "host", source: "configured" });
 	});
 
 	it("requires docker by default in production", () => {

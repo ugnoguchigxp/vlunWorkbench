@@ -5,10 +5,10 @@ import { parseArgs } from "node:util";
 import { eq } from "drizzle-orm";
 import { createDbConnection } from "../api/db";
 import { projects, scanArtifacts, scanRuns, users } from "../api/db/schema";
-import { ArtifactStorage } from "../api/modules/scans/artifact-storage";
-import { runDastStepIntoExistingScan } from "../api/modules/scans/profile-dast-step-runner";
-import { runRuntimeScannerIntoExistingScan } from "../api/modules/scans/profile-runtime-step-runner";
-import { runSchemaScannerIntoExistingScan } from "../api/modules/scans/profile-schema-step-runner";
+import { ArtifactStorage } from "../api/modules/scans/execution/lifecycle/artifact-storage";
+import { runDastStepIntoExistingScan } from "../api/modules/scans/execution/profile-dast-step-runner";
+import { runRuntimeScannerIntoExistingScan } from "../api/modules/scans/execution/profile-runtime-step-runner";
+import { runSchemaScannerIntoExistingScan } from "../api/modules/scans/execution/profile-schema-step-runner";
 import { ScanRepository } from "../api/modules/scans/repositories";
 import { startTodolistRuntimeTarget } from "./todolist-runtime-target";
 import {

@@ -1,0 +1,74 @@
+<article lang="ja">
+  <h1 id="operator-onboarding">運用開始・障害切り分け・引き継ぎ</h1>
+  <p>
+    対象: 一台のローカルアプリとSQLite
+    Writer。外部資格情報なしで起動・fixture検証する手順を基準にする。maintainerが主担当、代替担当は未割当。
+  </p>
+  <h2 id="first-thirty-minutes">最初の30分で確認すること</h2>
+  <ol>
+    <li>
+      READMEでscan→finding→review→decision→reportの流れを確認し、LLM_CONTEXTの能力所有表から変更箇所を選ぶ。
+    </li>
+    <li>
+      <code>bun install</code
+      >後、.env.exampleからローカル設定を用意する。PROJECT_ALLOWED_ROOTSへ自分が検査するディレクトリの絶対パスを設定する。空のままでは登録・新規実行を拒否する。
+    </li>
+    <li>
+      <code>bun run bootstrap</code
+      >、<code>bun run bootstrap:check</code>で起動準備を確認する。生成された資格情報は安全な場所へ保管し、文書やログへ貼らない。
+    </li>
+    <li>
+      scannerは既定Docker。daemon/image不足ならpreflightの理由に沿って準備する。hostが必要な場合だけ管理者設定で明示選択し、ALLOW_HOST_SCANNER_EXECUTIONの制限も確認する。
+    </li>
+    <li>
+      project登録後にpreflightを実施し、許可範囲・対象・profileを確認して実行する。CLI一覧は<code>bun run commands</code>。検出ゼロだけで安全と結論しない。
+    </li>
+  </ol>
+  <h2 id="path-recovery">パス制限で止まった場合</h2>
+  <p>
+    projectのblocked/missing理由を確認する。管理者がPROJECT_ALLOWED_ROOTSを変更した後はアプリを再起動する。MCPと統合clientには追加の許可ルートがある。共通ルートを広げてもclient制限は広がらない。既存のproject・artifactを削除して回避しない。<code>bun run audit:project-paths</code>は現在の設定で既存projectを再評価する。
+  </p>
+  <h2 id="failure">障害を切り分ける</h2>
+  <ul>
+    <li>
+      scanRunIdと永続化scan
+      eventを確認する。stderrのJSONログはevent/errorCode/durationMsで絞る。source本文やprovider例外本文を追加出力しない。
+    </li>
+    <li>
+      <code>bun run db:writer:health</code
+      >でWriterの状態・queueDepthを確認する。Writerが不通でもDBへの直接書込みで回避しない。
+    </li>
+    <li>
+      provider失敗は<code>llm.call.failed</code>を起点に設定画面の送信先と資格情報状態を確認する。ログにAPI
+      keyは含めない。
+    </li>
+    <li>Docker不足と対象アプリ不具合を区別する。失敗時にhostへ暗黙に切り替えない。</li>
+  </ul>
+  <h2 id="recovery-drill">手動の復旧演習</h2>
+  <ol>
+    <li>
+      本番DBと別の使い捨てディレクトリ・DB・Writer
+      socketでfixtureを用意する。テスト用資格情報だけを使う。
+    </li>
+    <li>
+      <code>bun run backup:create -- --output /absolute/path/backup.sqlite</code
+      >でbackupを作成する。<code>bun run backup:verify -- --input /absolute/path/backup.sqlite</code>で整合性を検証する。稼働中SQLiteファイルの単純コピーをbackupとして扱わない。
+    </li>
+    <li>
+      元のfixture環境を停止し、隔離した復元先でproject・scan・artifactの参照整合を確認する。元データを上書きしない。
+    </li>
+    <li>
+      演習日時、対象commit、OS、実行コマンド、結果、不足手順を残し、作成したプロセス・コンテナだけを停止する。
+    </li>
+  </ol>
+  <p>
+    ローカル自動確認:
+    <code>bun run backup:drill</code
+    >は使い捨てDB・別artifact保存先で、Writer経由のbackup作成→別DBへ復元→project/scanの参照とartifactハッシュの検証→cleanupを実行する。DB
+    backupにはartifactファイルが含まれないため、両方を保存・復元する。人間の代替担当による演習とは区別し、代替担当未割当のままバス係数が改善したとは主張しない。定期実行のCIは追加しない。
+  </p>
+  <h2 id="change">変更するとき</h2>
+  <p>
+    API/設定はtypecheckと対象テスト、UIはbuildと操作確認、共有scan処理は関連fixtureを先に実行する。横断変更の区切りで<code>bun run verify</code>。テストfixtureの許可ルートはそのfixture作成先だけに設定する。providerの実資格情報をテスト成功の前提にしない。
+  </p>
+</article>

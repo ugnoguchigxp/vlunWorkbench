@@ -10,24 +10,24 @@ import {
 } from "../../../../shared/schemas/nightworkers-security-intelligence-binding.schema";
 import { canonicalStringifySecurityIntelligenceValue } from "../../../../shared/security-intelligence-assessment-contract";
 import type { AppEnv } from "../../../app/env";
+import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
 import {
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
-} from "../../scans/scan-execution-policy";
+} from "../../scans/execution/scan-execution-policy";
+import type { ScanProcessSupervisor } from "../../scans/execution/scan-process-supervisor";
 import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../../scans/repositories";
-import type { ScanProcessSupervisor } from "../../scans/scan-process-supervisor";
-import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 import { sha256 } from "./nightworkers-integration-support";
 import {
+	type NightworkersWorkspaceTargetGrantRepository,
 	WorkspaceGrantAlreadyConsumedError,
 	WorkspaceGrantCapacityError,
 	WorkspaceGrantChangedError,
 	WorkspaceGrantIdempotencyConflictError,
-	type NightworkersWorkspaceTargetGrantRepository,
 } from "./nightworkers-workspace-target-grant.repository";
 import {
 	asWorkspaceGrantRecord,
@@ -38,8 +38,8 @@ import {
 	assertCapturedWorkspaceGrantState,
 	assertWorkspaceGrantFresh,
 	buildWorkspaceGrantPlan,
-	requireActiveWorkspaceGrant,
 	type WorkspaceGrantRow as GrantRow,
+	requireActiveWorkspaceGrant,
 	type WorkspacePlan,
 	type WorkspacePlanBuilder,
 } from "./nightworkers-workspace-target-grant-plan";

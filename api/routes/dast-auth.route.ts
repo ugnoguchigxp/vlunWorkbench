@@ -57,7 +57,9 @@ export function createDastAuthRoute(deps: {
 		const user = getAuthContextUser(c);
 		const projectId = c.req.param("projectId");
 		await assertOwner(projectId, user.userId);
-		const parsed = createDastAuthContextSchema.safeParse(await c.req.json());
+		const parsed = createDastAuthContextSchema.safeParse(
+			await c.req.json().catch(() => null),
+		);
 		if (!parsed.success) {
 			throw new HttpError(
 				400,
@@ -89,7 +91,9 @@ export function createDastAuthRoute(deps: {
 			const user = getAuthContextUser(c);
 			const projectId = c.req.param("projectId");
 			await assertOwner(projectId, user.userId);
-			const parsed = rotateDastAuthContextSchema.safeParse(await c.req.json());
+			const parsed = rotateDastAuthContextSchema.safeParse(
+				await c.req.json().catch(() => null),
+			);
 			if (!parsed.success) {
 				throw new HttpError(
 					400,

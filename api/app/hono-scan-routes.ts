@@ -19,20 +19,20 @@ import {
 	loadRuntimeIsolationProviderFactory,
 	runtimeIsolationSettingsFromAppEnv,
 } from "../modules/runtime-isolation/runtime-isolation-runtime-config";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
-import { ProjectDeletionService } from "../modules/scans/project-deletion-service";
-import { ScanReportRepository } from "../modules/scans/report-repository";
-import { ReportViewStateRepository } from "../modules/scans/report-view-state-repository";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import { ProjectDeletionService } from "../modules/scans/execution/lifecycle/project-deletion-service";
+import { ScanDeletionService } from "../modules/scans/execution/lifecycle/scan-deletion-service";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
+import { ScanReportRepository } from "../modules/scans/reporting/report-repository";
+import { ReportViewStateRepository } from "../modules/scans/reporting/report-view-state-repository";
 import {
 	ArtifactRepository,
 	FindingRepository,
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import { ScanDeletionService } from "../modules/scans/scan-deletion-service";
-import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
-import { createAssessmentsRoute } from "../routes/assessments.route";
 import { createAssessmentCampaignsRoute } from "../routes/assessment-campaigns.route";
+import { createAssessmentsRoute } from "../routes/assessments.route";
 import { createBusinessLogicRoute } from "../routes/business-logic.route";
 import { createDastRoute } from "../routes/dast.route";
 import { createDastAuthRoute } from "../routes/dast-auth.route";
@@ -43,8 +43,8 @@ import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
 import { createFindingsRoute } from "../routes/findings.route";
 import { createProjectsRoute } from "../routes/projects.route";
 import { createReproductionsRoute } from "../routes/reproductions.route";
-import { createScanProfilesRoute } from "../routes/scan-profiles.route";
 import { createScanLaunchesRoute } from "../routes/scan-launches.route";
+import { createScanProfilesRoute } from "../routes/scan-profiles.route";
 import { createScanReportsRoute } from "../routes/scan-reports.route";
 import { createScansRoute } from "../routes/scans.route";
 import { createStaticIntelligenceRoute } from "../routes/static-intelligence.route";
@@ -255,6 +255,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	app.route(
 		"/api",
 		createReproductionsRoute({
+			env: runtime.env,
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
@@ -264,6 +265,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	app.route(
 		"/api",
 		createDynamicRoute({
+			env: runtime.env,
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
@@ -310,6 +312,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	app.route(
 		"/api",
 		createDiagnosticsRoute({
+			env: runtime.env,
 			db: runtime.dbConnection.db,
 			projectRepository,
 			scanRepository,

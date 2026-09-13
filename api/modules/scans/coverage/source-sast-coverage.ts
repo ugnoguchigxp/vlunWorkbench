@@ -4,6 +4,7 @@ import {
 	sourceSastCoverageSchema,
 } from "../../../../shared/schemas/source-sast-coverage.schema";
 import type { ScanProfileStepResult } from "../execution/profile-runner";
+import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
 import {
 	resolveSourceSastApplicability,
 	type SourceSastApplicability,
@@ -15,6 +16,7 @@ export function resolveSourceSastCoverage(
 	profile: ScanProfile,
 	results?: ScanProfileStepResult[],
 	applicability?: SourceSastApplicability,
+	registry = staticScannerAdapterRegistry,
 ): SourceSastCoverage | null {
 	if (
 		!["full-security-scan", "change-gate", "source-assurance"].includes(
@@ -22,10 +24,23 @@ export function resolveSourceSastCoverage(
 		)
 	)
 		return null;
-	const semgrepStep = (profile.steps ?? []).find(
-		(step) => step.kind === "static_tool" && step.toolId === "semgrep",
+	const sastSteps = (profile.steps ?? []).filter(
+		(step) =>
+			step.kind === "static_tool" &&
+			registry.get(step.toolId)?.manifest.capabilities?.includes("source_sast"),
 	);
-	if (!semgrepStep) {
+	const sastStep =
+		sastSteps.find(
+			(step) =>
+				step.kind === "static_tool" &&
+				results?.some(
+					(result) =>
+						result.kind === "static_tool" &&
+						result.toolId === step.toolId &&
+						result.status === "completed",
+				),
+		) ?? sastSteps[0];
+	if (sastStep?.kind !== "static_tool") {
 		return {
 			capability: "source_sast",
 			applicability: "applicable",
@@ -37,6 +52,7 @@ export function resolveSourceSastCoverage(
 			limitationCodes: [SOURCE_SAST_NOT_EXECUTED],
 		};
 	}
+	const manifest = registry.require(sastStep.toolId).manifest;
 	const resolvedApplicability =
 		applicability ??
 		resolveSourceSastApplicability({
@@ -51,9 +67,9 @@ export function resolveSourceSastCoverage(
 			applicability: "not_applicable",
 			state: "not_applicable",
 			coverageEffect: "covered",
-			stepId: "semgrep",
-			engine: "semgrep",
-			rulesetId: "curated-sast-v1",
+			stepId: sastStep.toolId,
+			engine: manifest.id,
+			rulesetId: manifest.sourceSastRulesetId ?? null,
 			limitationCodes: resolvedApplicability.reasonCodes,
 		};
 	}
@@ -63,15 +79,15 @@ export function resolveSourceSastCoverage(
 			applicability: "unknown",
 			state: "unknown",
 			coverageEffect: "gap",
-			stepId: "semgrep",
-			engine: "semgrep",
-			rulesetId: "curated-sast-v1",
+			stepId: sastStep.toolId,
+			engine: manifest.id,
+			rulesetId: manifest.sourceSastRulesetId ?? null,
 			limitationCodes: [],
 		};
 	}
 	const result = results?.find(
 		(candidate) =>
-			candidate.kind === "static_tool" && candidate.toolId === "semgrep",
+			candidate.kind === "static_tool" && candidate.toolId === sastStep.toolId,
 	);
 	const reasonCode = result?.kind === "static_tool" ? result.reasonCode : null;
 	if (result?.status === "completed") {
@@ -80,9 +96,9 @@ export function resolveSourceSastCoverage(
 			applicability: "applicable",
 			state: "executed",
 			coverageEffect: "covered",
-			stepId: "semgrep",
-			engine: "semgrep",
-			rulesetId: "curated-sast-v1",
+			stepId: sastStep.toolId,
+			engine: manifest.id,
+			rulesetId: manifest.sourceSastRulesetId ?? null,
 			limitationCodes: [],
 		};
 	}
@@ -91,9 +107,9 @@ export function resolveSourceSastCoverage(
 		applicability: "applicable",
 		state: "applicable",
 		coverageEffect: "gap",
-		stepId: "semgrep",
-		engine: "semgrep",
-		rulesetId: "curated-sast-v1",
+		stepId: sastStep.toolId,
+		engine: manifest.id,
+		rulesetId: manifest.sourceSastRulesetId ?? null,
 		limitationCodes:
 			results === undefined
 				? [SOURCE_SAST_NOT_EXECUTED, ...resolvedApplicability.reasonCodes]

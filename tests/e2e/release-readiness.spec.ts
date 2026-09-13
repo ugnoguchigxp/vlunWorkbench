@@ -149,6 +149,7 @@ test("login is keyboard usable, accessible, and served with enforcing CSP", asyn
 	expect(response?.headers()["content-security-policy"]).toContain(
 		"default-src 'self'",
 	);
+	expect(response?.headers()["content-security-policy"]).not.toContain("unsafe-inline");
 	await expect(page.getByRole("heading", { name: "vulnWorkbench" })).toBeVisible();
 	await expectNoSeriousAccessibilityViolations(page);
 
@@ -214,8 +215,8 @@ test("mocked scan workspace renders results, report preview, and history deletio
 }) => {
 	const timestamp = "2026-07-24T00:00:00.000Z";
 	const project = {
-		id: "project-e2e",
-		ownerUserId: "user-e2e",
+		id: "00000000-0000-4000-8000-000000000101",
+		ownerUserId: "00000000-0000-4000-8000-000000000102",
 		name: "E2E project",
 		repoPath: "/tmp/e2e-project",
 		defaultBranch: "main",
@@ -231,7 +232,7 @@ test("mocked scan workspace renders results, report preview, and history deletio
 		status: "completed",
 		startedAt: timestamp,
 		completedAt: timestamp,
-		createdByUserId: "user-e2e",
+		createdByUserId: "00000000-0000-4000-8000-000000000102",
 		summary: "Completed browser fixture",
 		metadata: {},
 		createdAt: timestamp,
@@ -281,7 +282,7 @@ test("mocked scan workspace renders results, report preview, and history deletio
 		if (path === "/api/auth/me")
 			return json({
 				user: {
-					id: "user-e2e",
+					id: "00000000-0000-4000-8000-000000000102",
 					email: adminCredentials.email,
 					displayName: "E2E Admin",
 					role: "admin",

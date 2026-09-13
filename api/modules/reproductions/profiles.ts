@@ -1,8 +1,8 @@
 import type { findings } from "../../db/schema";
 import { semgrepReproductionProfile } from "../../plugins/scanners/semgrep-reproduction-profile";
-import { normalizeGitleaks } from "../scans/normalizers/gitleaks";
-import { normalizeOsv } from "../scans/normalizers/osv";
-import { normalizeTrivy } from "../scans/normalizers/trivy";
+import { normalizeGitleaks } from "../scans/findings/normalizers/gitleaks";
+import { normalizeOsv } from "../scans/findings/normalizers/osv";
+import { normalizeTrivy } from "../scans/findings/normalizers/trivy";
 import { isOptionalScannerAdapterEnabled } from "../scans/optional-scanner-adapter-config";
 
 export interface ReproductionCommand {

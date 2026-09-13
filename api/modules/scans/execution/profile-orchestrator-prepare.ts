@@ -1,5 +1,5 @@
 import type { ScanTarget } from "../../../../shared/schemas/scan-target.schema";
-import { resolveProjectPath } from "../../../security/project-path-policy";
+import { authorizeConfiguredProjectPath } from "../../../security/configured-project-path";
 import { analyzeProjectCapabilities } from "../../project-capabilities/plugin-detector";
 import { resolveSourceSastCoverage } from "../coverage/source-sast-coverage";
 import {
@@ -32,8 +32,8 @@ export async function prepareProfileScan(params: ProfileOrchestratorParams) {
 	const artifactRepo = new ArtifactRepository(params.db);
 	const artifactStorage = new ArtifactStorage();
 	const execution = normalizeToolExecutionConfig(params.execution);
-	if (params.executionSurface === "web") {
-		const authorized = await resolveProjectPath(params.repoPath);
+	if (params.executionSurface) {
+		const authorized = await authorizeConfiguredProjectPath(params.repoPath);
 		params.repoPath = authorized.canonicalPath;
 	}
 

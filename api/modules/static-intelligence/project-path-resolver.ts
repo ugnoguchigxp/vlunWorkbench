@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppDatabase } from "../../db";
 import { projects, users } from "../../db/schema";
+import { authorizeConfiguredProjectPath } from "../../security/configured-project-path";
 import { CLI_ORACLE_USER_EMAIL } from "../scans/project-resolver";
 import { ProjectRepository } from "../scans/repositories";
 
@@ -97,6 +98,14 @@ export async function canonicalizeProjectPath(params: {
 			"PROJECT_PATH_UNREADABLE",
 			"The requested project path is not readable.",
 			true,
+		);
+	}
+	try {
+		await authorizeConfiguredProjectPath(canonical);
+	} catch {
+		throw new ProjectPathResolutionError(
+			"PROJECT_PATH_NOT_ALLOWED",
+			"Project path is outside PROJECT_ALLOWED_ROOTS or its roots are unavailable.",
 		);
 	}
 	const allowedRoots = await canonicalizeAllowedProjectRoots(

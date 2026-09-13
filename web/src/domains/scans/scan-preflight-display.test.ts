@@ -66,7 +66,7 @@ describe("scan preflight display", () => {
 				"runtime_dependency_adapter_unqualified",
 				"target_start_plan_unavailable",
 			],
-		} as ScanPreflightResult);
+		} as unknown as ScanPreflightResult);
 
 		expect(message).toContain("Maven");
 		expect(message).toContain("ソースセキュリティ保証");
@@ -146,5 +146,40 @@ describe("scan preflight display", () => {
 		expect(
 			readScanPreflightDisplay({ scanPreflight: { status: "ready" } }),
 		).toBeNull();
+	});
+
+	it("describes remaining blocked reasons and generic failures", () => {
+		expect(
+			describeScanPreflightReason("runtime_isolation_provider_unavailable")
+				.heading,
+		).toContain("隔離実行環境");
+		expect(
+			describeScanPreflightReason("source_worktree_dirty").nextAction,
+		).toContain("コミット");
+		expect(
+			describeScanPreflightReason("unknown_reason", "start_docker_daemon")
+				.nextAction,
+		).toContain("Docker");
+		expect(describeScanPreflightReason(null).heading).toContain(
+			"実行前チェック",
+		);
+		const noBlocked = formatScanPreflightFailure({
+			checks: [{ required: true, status: "ready" }],
+			limitationCodes: ["scanner_data_stale"],
+		} as unknown as ScanPreflightResult);
+		expect(noBlocked).toContain("scanner_data_stale");
+		expect(noBlocked).toContain("古くなっています");
+		const optionalBlocked = formatScanPreflightFailure({
+			checks: [
+				{
+					required: false,
+					status: "blocked",
+					reasonCode: "docker_daemon_unavailable",
+					action: "start_docker_daemon",
+				},
+			],
+			limitationCodes: [],
+		} as unknown as ScanPreflightResult);
+		expect(optionalBlocked).toContain("docker_daemon_unavailable");
 	});
 });

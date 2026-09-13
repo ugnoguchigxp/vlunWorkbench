@@ -27,21 +27,21 @@ import {
 	loadRuntimeIsolationProviderFactory,
 	runtimeIsolationSettingsFromAppEnv,
 } from "../modules/runtime-isolation/runtime-isolation-runtime-config";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import { ProjectArtifactCleanupRunner } from "../modules/scans/execution/lifecycle/project-artifact-cleanup-runner";
+import { ProjectDeletionCleanupRepository } from "../modules/scans/execution/lifecycle/project-deletion-cleanup-repository";
 import { ScanResourceLeaseRepository } from "../modules/scans/execution/lifecycle/scan-resource-lease-repository";
-import { ProjectArtifactCleanupRunner } from "../modules/scans/project-artifact-cleanup-runner";
-import { ProjectDeletionCleanupRepository } from "../modules/scans/project-deletion-cleanup-repository";
-import { ScanReportRepository } from "../modules/scans/report-repository";
+import { ScanProcessSupervisor } from "../modules/scans/execution/scan-process-supervisor";
+import { finalizeWebScanAfterDiagnostic } from "../modules/scans/execution/web-scan-post-processing";
+import { ScanDiagnosticRunner } from "../modules/scans/handoff/scan-diagnostic-runner";
+import { ScanImprovementRequestRunner } from "../modules/scans/handoff/scan-improvement-request-runner";
+import { ScanReviewRepository } from "../modules/scans/handoff/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/handoff/scan-review-runner";
+import { ScanReportRepository } from "../modules/scans/reporting/report-repository";
 import {
 	ArtifactRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
-import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-request-runner";
-import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
-import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
-import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
-import { finalizeWebScanAfterDiagnostic } from "../modules/scans/web-scan-post-processing";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { SourceRepository } from "../modules/sources/source.repository";
 import {

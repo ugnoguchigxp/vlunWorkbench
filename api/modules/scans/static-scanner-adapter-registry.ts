@@ -33,6 +33,7 @@ export class StaticScannerAdapterRegistry {
 			...adapter,
 			manifest: Object.freeze({
 				...manifest,
+				capabilities: Object.freeze([...(manifest.capabilities ?? [])]),
 				dockerAllowedFirstArgs: Object.freeze([
 					...manifest.dockerAllowedFirstArgs,
 				]),

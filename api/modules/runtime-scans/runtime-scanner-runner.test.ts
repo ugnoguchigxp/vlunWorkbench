@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { RuntimeScannerRunner } from "./runtime-scanner-runner";
 
 describe("RuntimeScannerRunner", () => {

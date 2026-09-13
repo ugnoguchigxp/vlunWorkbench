@@ -1,6 +1,6 @@
 import type { PromptInvocation } from "s11tnext";
 import type { ReviewInputBundle } from "../modules/reviews/finding-review-types";
-import type { ScanReviewBundle } from "../modules/scans/scan-review-bundle";
+import type { ScanReviewBundle } from "../modules/scans/handoff/scan-review-bundle";
 import { PROMPT_KEYS, promptCatalog } from "./catalog";
 import { toJsonValue } from "./json-value";
 

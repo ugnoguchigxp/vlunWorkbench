@@ -3,8 +3,9 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { readAppEnv } from "../api/app/env";
 import { createDbConnection } from "../api/db";
-import { resolveScanExecutionPolicy } from "../api/modules/scans/scan-execution-policy";
+import { resolveScanExecutionPolicy } from "../api/modules/scans/execution/scan-execution-policy";
 import { staticScannerAdapterRegistry } from "../api/modules/scans/static-scanner-adapters";
+import { canonicalizeProjectAllowedRoots } from "../api/security/project-path-policy";
 
 type CheckResult = {
 	label: string;
@@ -129,6 +130,27 @@ async function main() {
 			status: "fail",
 			message: error instanceof Error ? error.message : String(error),
 		});
+	}
+
+	if (env) {
+		try {
+			const roots = await canonicalizeProjectAllowedRoots(
+				env.projectAllowedRoots ?? [],
+			);
+			results.push({
+				label: "project-roots",
+				status: roots.length ? "ok" : "fail",
+				message: roots.length
+					? "Project roots configured."
+					: "Set PROJECT_ALLOWED_ROOTS in .env before registering or scanning projects.",
+			});
+		} catch {
+			results.push({
+				label: "project-roots",
+				status: "fail",
+				message: "PROJECT_ALLOWED_ROOTS contains an unavailable directory.",
+			});
+		}
 	}
 
 	try {

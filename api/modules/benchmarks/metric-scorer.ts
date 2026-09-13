@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { BenchmarkMetric } from "../../../shared/schemas/benchmark.schema";
 import { benchmarkMetricSchema } from "../../../shared/schemas/benchmark.schema";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
 
 export type BenchmarkGroundTruth = {
 	testId: string;

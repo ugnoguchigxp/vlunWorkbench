@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import type { NormalizedFinding } from "../scans/normalizers/fixture";
-import { redactSecrets } from "../scans/normalizers/redaction";
+import type { NormalizedFinding } from "../scans/findings/normalizers/fixture";
+import { redactSecrets } from "../scans/findings/normalizers/redaction";
 
 export function normalizeSchemathesis(input: unknown): NormalizedFinding[] {
 	const rows = Array.isArray(input)

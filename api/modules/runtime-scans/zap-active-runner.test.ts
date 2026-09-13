@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import {
 	type ActiveResetExecutor,
 	buildZapActiveDockerCommand,

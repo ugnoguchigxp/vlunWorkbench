@@ -4,13 +4,13 @@ import path from "node:path";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
-} from "../scans/artifact-storage";
+} from "../scans/execution/lifecycle/artifact-storage";
 import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
-import { redactSecrets } from "../scans/normalizers/redaction";
+import { redactSecrets } from "../scans/findings/normalizers/redaction";
 import {
-	runToolProcess,
 	checkToolVersion,
 	getCleanEnv,
+	runToolProcess,
 	type ToolExecutionConfig,
 	type ToolLifecycleEvent,
 } from "../scans/tools/tool-process-runner";

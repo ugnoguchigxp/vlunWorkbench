@@ -16,7 +16,7 @@ type BudgetManifest = {
 	entries: BudgetEntry[];
 };
 
-const roots = ["api", "shared", "web"];
+const roots = ["api", "shared", "web", "scripts"];
 const productionPattern = /\.(?:ts|tsx)$/;
 const testPattern = /\.(?:test|spec)\.(?:ts|tsx)$/;
 

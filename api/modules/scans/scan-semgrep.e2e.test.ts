@@ -83,6 +83,9 @@ describe("Semgrep CLI Scan E2E", () => {
 				env: {
 					...process.env,
 					DATABASE_URL: dbUrl,
+				SCAN_EXECUTION_MODE: "host",
+				ALLOW_HOST_SCANNER_EXECUTION: "true",
+				PROJECT_ALLOWED_ROOTS: repoPath,
 					SCAN_ARTIFACT_ROOT: artifactRoot,
 					PATH: mockBinDir,
 				},
@@ -152,6 +155,9 @@ process.exit(0);
 			env: {
 				...process.env,
 				DATABASE_URL: dbUrl,
+				SCAN_EXECUTION_MODE: "host",
+				ALLOW_HOST_SCANNER_EXECUTION: "true",
+				PROJECT_ALLOWED_ROOTS: repoPath,
 				SCAN_ARTIFACT_ROOT: artifactRoot,
 				PATH: mockBinDir,
 			},

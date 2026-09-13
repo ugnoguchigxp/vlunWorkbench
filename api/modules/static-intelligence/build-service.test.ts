@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanRuns, users } from "../../db/schema";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import {
 	buildStaticIntelligenceGeneration,
 	StaticIntelligenceBuildInputError,
@@ -243,4 +243,5 @@ function applyMigrations(connection: DbConnection) {
 		connection.sqlite.exec(readFileSync(path.join(migrationsDir, filename), "utf8"));
 	}
 }
+
 import { execFileSync } from "node:child_process";

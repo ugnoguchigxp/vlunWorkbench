@@ -12,15 +12,25 @@ import {
 	loadRuntimeIsolationProviderFactory,
 	runtimeIsolationSettingsFromAppEnv,
 } from "../modules/runtime-isolation/runtime-isolation-runtime-config";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import {
 	buildDiffScanPlan,
 	toDiffScanPreview,
-} from "../modules/scans/diff-scan-plan";
+} from "../modules/scans/execution/diff/diff-scan-plan";
 import {
 	GitDiffResolutionError,
 	resolveGitDiff,
-} from "../modules/scans/git-diff-resolver";
+} from "../modules/scans/execution/diff/git-diff-resolver";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import {
+	applyStrictProfileRequirements,
+	buildScanExecutionPlan,
+} from "../modules/scans/execution/scan-execution-plan-builder";
+import {
+	executionConfigFromPolicy,
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/execution/scan-execution-policy";
+import { runScanPreflight } from "../modules/scans/execution/scan-preflight";
 import type { resolveProfileSelection } from "../modules/scans/profile-resolution";
 import {
 	resolveProfileSteps,
@@ -30,24 +40,15 @@ import {
 	ProjectResolutionError,
 	resolveProjectByPath,
 } from "../modules/scans/project-resolver";
+import { finalizeScanAfterDiagnostic } from "../modules/scans/reporting/scan-finalization-service";
 import { ProjectRepository } from "../modules/scans/repositories";
 import {
-	applyStrictProfileRequirements,
-	buildScanExecutionPlan,
-} from "../modules/scans/scan-execution-plan-builder";
-import {
-	executionConfigFromPolicy,
-	resolveScanExecutionPolicy,
-	scanExecutionPolicyMetadata,
-} from "../modules/scans/scan-execution-policy";
-import { finalizeScanAfterDiagnostic } from "../modules/scans/scan-finalization-service";
-import { runScanPreflight } from "../modules/scans/scan-preflight";
-import {
-	normalizeToolExecutionConfig,
 	type DockerNetworkMode,
+	normalizeToolExecutionConfig,
 	type ToolRunnerKind,
 } from "../modules/scans/tools/tool-process-runner";
 import { SettingsRepository } from "../modules/settings/settings.repository";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 import { buildScanProfileDryRun } from "./scan-profile-dry-run";
@@ -238,6 +239,7 @@ export async function executeResolvedScanProfile(
 				expectedTargetDigest,
 			});
 		}
+		await authorizeConfiguredProjectPath(effectiveRepoPath);
 		if (dryRun) {
 			const steps = applyStrictProfileRequirements(
 				profile,

@@ -137,4 +137,70 @@ describe("project overview presentation", () => {
 			expect(result.intelligence).toMatchObject({ status: label, action });
 		},
 	);
+
+	it("maps remaining scan and intelligence presentation branches", () => {
+		expect(
+			buildProjectOverviewPresentation(
+				source({ scan: true, scanStatus: "failed" }),
+			).scan,
+		).toMatchObject({ status: "失敗", tone: "danger" });
+		expect(
+			buildProjectOverviewPresentation(
+				source({ scan: true, scanStatus: "cancelled" }),
+			).scan.status,
+		).toBe("キャンセル済み");
+		expect(
+			buildProjectOverviewPresentation(
+				source({
+					scan: true,
+					scanStatus: "unknown" as never,
+				}),
+			).scan.status,
+		).toBe("状態不明");
+		expect(
+			buildProjectOverviewPresentation(
+				source({
+					scan: true,
+					generation: true,
+					status: "failed",
+					exportPayload: true,
+				}),
+			).intelligence,
+		).toMatchObject({
+			status: "生成失敗",
+			action: "retry_intelligence",
+		});
+		const metrics = buildProjectOverviewPresentation(
+			source({
+				scan: true,
+				generation: true,
+				status: "available",
+				exportPayload: true,
+			}),
+		).intelligence.metrics;
+		expect(
+			buildProjectOverviewPresentation({
+				...source({
+					scan: true,
+					generation: true,
+					status: "available",
+					exportPayload: true,
+				}),
+				export: {
+					scan: { findingCount: 0 },
+					scanSummary: { riskBand: "none", evidenceQuality: "none" },
+				},
+				readiness: {
+					export: { status: "available", reasonCodes: [] },
+					codeStructure: { status: "stale", reasonCodes: [] },
+				},
+			} as never).intelligence.metrics,
+		).toEqual([
+			{ label: "リスク", value: "検出なし" },
+			{ label: "根拠品質", value: "根拠なし" },
+			{ label: "Finding", value: 0 },
+			{ label: "コード構造", value: "更新が必要" },
+		]);
+		expect(metrics).toHaveLength(4);
+	});
 });

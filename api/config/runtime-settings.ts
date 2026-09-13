@@ -262,11 +262,10 @@ export type RuntimeSettingsResponse = RuntimeSettingsBase & {
 
 export function runtimeSettingsFromAppEnv(env: AppEnv): RuntimeSettings {
 	return RuntimeSettingsSchema.parse({
-		scanExecutionMode:
-			env.scanExecutionMode ??
-			(env.nodeEnv === "production" ? "docker" : "host"),
+		scanExecutionMode: env.scanExecutionMode ?? "docker",
 		allowHostScannerExecution:
-			env.allowHostScannerExecution ?? env.nodeEnv !== "production",
+			env.allowHostScannerExecution ??
+			(env.scanExecutionMode === "host" && env.nodeEnv !== "production"),
 		scanDockerImage:
 			env.scanDockerImage ?? RUNTIME_SETTINGS_DEFAULTS.scanDockerImage,
 		dockerMemory: env.dockerMemory ?? RUNTIME_SETTINGS_DEFAULTS.dockerMemory,

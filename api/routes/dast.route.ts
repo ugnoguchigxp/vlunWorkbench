@@ -22,18 +22,16 @@ import {
 } from "../modules/dast/target-validator";
 import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import {
-	type ProjectRepository,
-	ScanRepository,
-} from "../modules/scans/repositories";
-import {
 	buildDedicatedProfileAdmissionMetadata,
 	createDedicatedLaunchAttempt,
 } from "../modules/scans/dedicated-profile-admission";
 import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import {
-	ProjectPathPolicyError,
-	resolveProjectPath,
-} from "../security/project-path-policy";
+	type ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
+import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { executeDastCli } from "./dast-cli-bridge";
 
 type DastRouteDeps = {
@@ -59,7 +57,10 @@ export function createDastRoute(deps: DastRouteDeps) {
 
 	async function assertExecutionPath(repoPath: string) {
 		try {
-			await resolveProjectPath(repoPath);
+			await authorizeConfiguredProjectPath(
+				repoPath,
+				deps.env?.projectAllowedRoots,
+			);
 		} catch (error) {
 			if (error instanceof ProjectPathPolicyError) {
 				throw new HttpError(400, error.message);

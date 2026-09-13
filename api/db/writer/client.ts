@@ -2,12 +2,19 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
+import { logEvent } from "../../app/logger";
 import {
 	databaseIdFromUrl,
 	defaultWriterSocketPath,
 	writerLockPath,
 } from "../database-url";
 import * as schema from "../schema";
+import {
+	delay,
+	type FetchUnixInit,
+	processExists,
+	SqliteWriterClientError,
+} from "./client-support";
 import { decodeWriterValue, encodeWriterValue } from "./codec";
 import {
 	WRITER_PROTOCOL_VERSION,
@@ -19,18 +26,13 @@ import {
 	writerHealthSchema,
 	writerResponseSchema,
 } from "./protocol";
-import {
-	delay,
-	type FetchUnixInit,
-	processExists,
-	SqliteWriterClientError,
-} from "./client-support";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 2_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const WRITER_SHUTDOWN_TIMEOUT_MS = 5_000;
 const ownedWriterClients = new Set<SqliteWriterClient>();
+
 export { SqliteWriterClientError } from "./client-support";
 export class SqliteWriterClient {
 	readonly databaseId: string;
@@ -277,6 +279,11 @@ export class SqliteWriterClient {
 	private async ensureStarted(): Promise<WriterHealth> {
 		if (this.startPromise) return await this.startPromise;
 		this.startPromise = this.connectOrStart().catch((error) => {
+			logEvent({
+				level: "error",
+				event: "writer.unavailable",
+				errorCode: "writer_connection_failed",
+			});
 			this.startPromise = undefined;
 			throw error;
 		});

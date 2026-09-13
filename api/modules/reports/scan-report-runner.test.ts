@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanArtifacts, scanReports, scanRuns, users } from "../../db/schema";
 import type { LlmRouter } from "../../providers/llmRouter";
-import { ArtifactStorage } from "../scans/artifact-storage";
-import { ScanReportRepository } from "../scans/report-repository";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
+import { ScanReportRepository } from "../scans/reporting/report-repository";
 import { ScanReportRunner } from "./scan-report-runner";
 
 describe("ScanReportRunner", () => {

@@ -9,19 +9,20 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import type { RuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-provider-factory";
+import { resolveFullScanTarget } from "../modules/scans/execution/full-scan-target";
 import { materializeScopedSourceSnapshot } from "../modules/scans/execution/lifecycle/full-source-snapshot";
+import type { ProjectDeletionService } from "../modules/scans/execution/lifecycle/project-deletion-service";
 import type { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
-import { resolveFullScanTarget } from "../modules/scans/full-scan-target";
-import type { ProjectDeletionService } from "../modules/scans/project-deletion-service";
+import type { ScanProcessSupervisor } from "../modules/scans/execution/scan-process-supervisor";
 import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
 import {
 	ProjectPathPolicyError,
-	resolveProjectPath,
+	type resolveProjectPath,
 } from "../security/project-path-policy";
 import { runBoundedCliProcess } from "./cli-process-bridge";
 import { createProjectScanRoutes } from "./project-scan.route";
@@ -53,7 +54,13 @@ export type ProjectsRouteDeps = {
 
 export function createProjectsRoute(deps: ProjectsRouteDeps) {
 	const repo = deps.projectRepository;
-	const resolvePath = deps.resolveProjectPath ?? resolveProjectPath;
+	const resolvePath =
+		deps.resolveProjectPath ??
+		((projectPath: string) =>
+			authorizeConfiguredProjectPath(
+				projectPath,
+				deps.env?.projectAllowedRoots,
+			));
 	const resolveFullTarget = deps.resolveFullScanTarget ?? resolveFullScanTarget;
 	const materializeSourceSnapshot =
 		deps.materializeScopedSourceSnapshot ?? materializeScopedSourceSnapshot;

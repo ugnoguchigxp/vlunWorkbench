@@ -5,6 +5,7 @@ import {
 	runAttackSurfaceInventoryRequestSchema,
 	runSecurityChecksRequestSchema,
 } from "../../shared/schemas/diagnostics.schema";
+import type { AppEnv } from "../app/env";
 import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
@@ -16,15 +17,17 @@ import {
 	DiagnosticReportRepository,
 	SecurityCheckRepository,
 } from "../modules/diagnostics/repository";
-import type { ArtifactStorage } from "../modules/scans/artifact-storage";
+import type { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
 import type {
 	ArtifactRepository,
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
 
 type DiagnosticsRouteDeps = {
 	db: AppDatabase;
+	env?: AppEnv;
 	projectRepository: ProjectRepository;
 	scanRepository: ScanRepository;
 	artifactRepository: ArtifactRepository;
@@ -73,6 +76,10 @@ export function createDiagnosticsRoute(deps: DiagnosticsRouteDeps) {
 			if (!parsed.success) {
 				throw new HttpError(400, parsed.error.message);
 			}
+			await authorizeConfiguredProjectPath(
+				project.repoPath,
+				deps.env?.projectAllowedRoots,
+			);
 			const result = await new AttackSurfaceInventoryRunner(deps.db).run({
 				projectId: project.id,
 				scanRunId,

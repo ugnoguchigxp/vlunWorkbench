@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import crypto from "node:crypto";
 import { scoreBenchmark } from "../api/modules/benchmarks/metric-scorer";
-import { canonicalJson } from "../api/modules/scans/diff-scan-plan";
+import { canonicalJson } from "../api/modules/scans/execution/diff/diff-scan-plan";
+import { juiceShopRunReportSchema } from "./benchmark/juice-shop-observations";
 import {
 	assertMetricArtifactIntegrity,
 	assertOwaspMetricArtifactMatchesInputs,
 	isAuthoritativeJuiceShopReleaseRun,
 	type MetricArtifact,
 } from "./professional-capability-artifact-verifier";
-import { juiceShopRunReportSchema } from "./benchmark/juice-shop-observations";
 
 function validArtifact(): MetricArtifact {
 	return scoreBenchmark(

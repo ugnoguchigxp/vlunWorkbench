@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { buildZapBaselineDockerCommand, ZapBaselineRunner } from "./zap-baseline-runner";
 import { isPinnedZapImage, ZAP_STABLE_IMAGE } from "./zap-image-policy";
 

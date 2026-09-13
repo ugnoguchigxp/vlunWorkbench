@@ -12,7 +12,7 @@ import {
 	closeTestDbConnection,
 	createWritableTestDbConnection,
 } from "../../db/testing/connection";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import { buildStaticIntelligenceExport } from "./export-builder";
 import {
 	StaticIntelligenceGenerationRepository,

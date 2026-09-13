@@ -1,28 +1,28 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+	type PreparedContainerTargetGateway,
+	prepareContainerTargetGateway,
+} from "../dast/container-target-gateway";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
-} from "../scans/artifact-storage";
+} from "../scans/execution/lifecycle/artifact-storage";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import {
 	redactJsonSecrets,
 	redactSecrets,
-} from "../scans/normalizers/redaction";
-import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+} from "../scans/findings/normalizers/redaction";
 import type { ToolExecutionConfig } from "../scans/tools/tool-process-runner";
-import {
-	prepareContainerTargetGateway,
-	type PreparedContainerTargetGateway,
-} from "../dast/container-target-gateway";
 import { buildZapBaselineCommand } from "./command-contracts";
 import {
 	isPinnedZapImage,
 	ZAP_REPORT_FILENAME,
 	ZAP_STABLE_IMAGE,
 } from "./zap-image-policy";
-import { parseZapReport, type ZapReport } from "./zap-report-schema";
 import { normalizeZap } from "./zap-normalizer";
+import { parseZapReport, type ZapReport } from "./zap-report-schema";
 
 const MAX_ZAP_REPORT_BYTES = 20 * 1024 * 1024;
 

@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { logEvent } from "../../app/logger";
 import { type AppDatabase, writerClientForDatabase } from "../../db";
 import {
 	projects,
@@ -343,6 +344,18 @@ export class ScanRepository {
 			})
 			.returning();
 		if (!created) return created;
+		if (
+			params.level === "error" ||
+			["scan.queued", "scan.started", "scan.completed", "scan.failed"].includes(
+				params.eventType,
+			)
+		) {
+			logEvent({
+				level: params.level,
+				event: params.eventType,
+				scanRunId: params.scanRunId,
+			});
+		}
 		return (
 			(await this.db.query.scanEvents.findFirst({
 				where: eq(scanEvents.id, created.id),

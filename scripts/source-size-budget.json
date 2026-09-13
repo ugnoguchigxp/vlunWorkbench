@@ -18,6 +18,33 @@
 			"owner": "scans",
 			"reason": "Issue-chunked improvement requests grew the builder; extract issue assembly from request serialization.",
 			"reviewDate": "2026-09-21"
+		},
+		{
+			"path": "scripts/scanner-e2e.ts",
+			"baselineLines": 607,
+			"allowedMaximum": 607,
+			"targetMaximum": 550,
+			"owner": "verification",
+			"reason": "Existing local verification baseline; split orchestration from fixture data when this script changes. No growth allowance.",
+			"reviewDate": "2026-10-13"
+		},
+		{
+			"path": "scripts/scanner-hardening-closeout.ts",
+			"baselineLines": 846,
+			"allowedMaximum": 846,
+			"targetMaximum": 550,
+			"owner": "verification",
+			"reason": "Existing local verification baseline; split orchestration from fixture data when this script changes. No growth allowance.",
+			"reviewDate": "2026-10-13"
+		},
+		{
+			"path": "scripts/project-intelligence-value-pilot-contract.ts",
+			"baselineLines": 915,
+			"allowedMaximum": 915,
+			"targetMaximum": 550,
+			"owner": "verification",
+			"reason": "Existing local verification baseline; split orchestration from fixture data when this script changes. No growth allowance.",
+			"reviewDate": "2026-10-13"
 		}
 	]
 }

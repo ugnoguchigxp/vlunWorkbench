@@ -89,7 +89,13 @@ async function collectBunCoverage(
 					{
 						stdout: "pipe",
 						stderr: "pipe",
-						env: { ...process.env, NODE_ENV: "test" },
+						env: {
+							...process.env,
+							NODE_ENV: "test",
+							PROJECT_ALLOWED_ROOTS:
+								process.env.PROJECT_ALLOWED_ROOTS ??
+								[process.cwd(), os.tmpdir()].join(","),
+						},
 					},
 				);
 				const [exitCode, stdout, stderr] = await Promise.all([

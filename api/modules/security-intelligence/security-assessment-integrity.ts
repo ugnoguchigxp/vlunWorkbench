@@ -6,8 +6,8 @@ import {
 } from "../../../shared/schemas/scan-target.schema";
 import { canonicalStringifySecurityIntelligenceValue } from "../../../shared/security-intelligence-assessment-contract";
 import type { scanArtifacts } from "../../db/schema";
-import type { ArtifactStorage } from "../scans/artifact-storage";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
+import type { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import type { PersistedDependencyToolResult } from "./persisted-dependency-assessment.schema";
 import {
 	failSecurityAssessmentInput as fail,

@@ -1,4 +1,4 @@
-import { canonicalJson } from "../../api/modules/scans/diff-scan-plan";
+import { canonicalJson } from "../../api/modules/scans/execution/diff/diff-scan-plan";
 import { sha256 } from "./benchmark-input-provenance";
 
 // The producer and verifier must bind every detector, postprocessor and scorer

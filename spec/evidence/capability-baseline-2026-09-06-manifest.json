@@ -1,0 +1,57 @@
+{
+	"schemaVersion": 1,
+	"generatedAt": "2026-09-06T04:07:14.015Z",
+	"releaseCommit": "16f398d626a89f92ec1b6872bb3a5df69ecd56c3",
+	"sourceTree": "496305a5f83ea8de4a6c2f0e3328df83abcdccb7",
+	"platform": "linux",
+	"architecture": "arm64",
+	"status": "passed",
+	"benchmarkRunId": "ee4dd6c1-ccab-415b-8834-99453cd62be3",
+	"scannerManifestHash": "sha256:e16b07009c4247996494ed9b44cddbfaa1a558eb283d27cc9c889aa195608056",
+	"semgrepImage": "docker.io/semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8",
+	"osvImage": "ghcr.io/google/osv-scanner@sha256:5116601dedc01c1c580eb92371883ec052fc4c13c3fbc109d621a63ac416d475",
+	"commands": [
+		{
+			"command": "bun run db:migrate",
+			"exitCode": 0
+		},
+		{
+			"command": "bun run security-corpora:verify",
+			"exitCode": 0
+		},
+		{
+			"command": "bun run benchmark:all",
+			"exitCode": 0
+		},
+		{
+			"command": "bun run verify:professional-capability",
+			"exitCode": 0
+		},
+		{
+			"command": "bun run verify:juice-shop-release",
+			"exitCode": 0
+		}
+	],
+	"artifacts": {
+		"benchmark/all.json": "sha256:cc9ee4790b8e467a3010100621a3cfd831d4bf8cecb9773166e3ec7e48736861",
+		"benchmark/owasp-run.json": "sha256:60e57363ef40e175846d1edc5170053379ee71078f80d736b441a989d5fa8cec",
+		"benchmark/owasp-metrics.json": "sha256:a39518fc4486dcebc6c60a060bc904c31bb8ca491e27f35729ff136ea9eba759",
+		"benchmark/owasp-findings.json": "sha256:3fdffe26f782b37a8d5a0afbe202e57f3bfff532d8956c20c4ca3c9ed3d9bb75",
+		"benchmark/owasp-semgrep-raw.json": "sha256:71c168a6aa8f668c968d2f1ae7f2ea775fc013a565c745a116e5b4816e41e926",
+		"benchmark/juice-shop-run.json": "sha256:a71edddf20e85a0329bf135d715d83032cd00830a00975b31e259ee1e3117114",
+		"benchmark/juice-shop-metrics.json": "sha256:d1f1ebe50d1c8caf7ba00da71dce847f1b684ee3899298a20665a51749dcc558",
+		"benchmark/juice-shop-observations.json": "sha256:4ae3ea396a25c25a3d2d32365ef59a6fd23c814c7581d9f9bd106a8841b34255",
+		"benchmark/semgrep-catalog.json": "sha256:f68f654f7279af75a90d6991c277a4b4219013840af37d4ee1cf88a767a29252",
+		"benchmark/java-taint-holdouts.json": "sha256:2734923c2db81714b5837cd1cc5d4ec5ab9fdedebbdd6ae366770d13e8c12c5a",
+		"benchmark/java-taint-holdouts-raw.json": "sha256:dd2f9bde50f4ef7fa773b2b2c7f42a010263ed41df83c8d848f2311ad5fe4eb4",
+		"benchmark/osv-offline-fixtures.json": "sha256:9326492224cf8543889327092aa30be2af2631c0467030406587b03d9f4cf32d",
+		"benchmark/business-logic-metrics.json": "sha256:a94c0d1ad5ab1a3985c83674a226be3510e0864477b85148ae2e46ada15c7af1",
+		"benchmark/endpoint-discovery-metrics.json": "sha256:73dc35daae1393a3bac3584be155430321c002481787ab8f5e81c3b37a7eea02",
+		"benchmark/dast-standard-metrics.json": "sha256:4622414e7e04e5c73c25040abd031a4caa5f02d6d18a85632f175b66f406a71a",
+		"professional-capability-release-report.json": "sha256:5a085ba92f3fb76b4e9b7cba2a979eb1e513ca9095517cf5d918e7ba8d069ce8"
+	},
+	"databasePath": ".artifacts/capability/f2a66751-7a79-416c-8b38-38cd93cbb6d1/benchmark.sqlite",
+	"databaseHash": "sha256:d4185d635fd64dd888487e6c92949aa79b562e16fd964f23f090ab039b72cc06",
+	"failure": null,
+	"scope": "Versioned owned fixtures, pinned OWASP Java and Juice Shop corpora; no claim of universal vulnerability detection."
+}

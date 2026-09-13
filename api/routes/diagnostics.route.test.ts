@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../db";
 import { scanArtifacts, users } from "../db/schema";
 import { HttpError } from "../modules/auth/errors";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
 import {
 	ArtifactRepository,
 	ProjectRepository,

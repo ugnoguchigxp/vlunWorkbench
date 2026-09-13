@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ArtifactStorage } from "./artifact-storage";
-import { selectStaticTool } from "./profile-static-tool-selection";
-import { prepareToolProvenance } from "./profile-tool-provenance";
+import { ArtifactStorage } from "./execution/lifecycle/artifact-storage";
+import { selectStaticTool } from "./execution/profile-static-tool-selection";
+import { prepareToolProvenance } from "./execution/profile-tool-provenance";
 import {
   resolveStaticScannerApplicability,
   resolveStaticScannerDiffExecution,

@@ -40,7 +40,7 @@
       </tr>
       <tr>
         <td><code>hono</code></td>
-        <td><code>4.12.34</code></td>
+        <td><code>4.13.5</code></td>
         <td>Keep all direct and transitive Hono copies on one audited version.</td>
       </tr>
       <tr>
@@ -78,7 +78,7 @@
       </tr>
       <tr>
         <td><code>js-yaml</code></td>
-        <td><code>3.15.1</code></td>
+        <td><code>3.15.2</code></td>
         <td>Exclude vulnerable YAML parser versions used by gray-matter.</td>
       </tr>
       <tr>
@@ -106,11 +106,24 @@
         <td><code>6.16.0</code></td>
         <td>Exclude the denial-of-service advisory affecting the previous transitive release.</td>
       </tr>
+      <tr>
+        <td><code>smol-toml</code></td>
+        <td><code>1.7.1</code></td>
+        <td>Fix malformed TOML denial of service (GHSA-7w5x-hrqm-74c2).</td>
+      </tr>
     </tbody>
   </table>
   <p>
     <code>bun run check:audit</code> blocks moderate, high, and critical advisories. An
     exception requires an advisory identifier, non-applicability evidence, owner, and expiry date in
     this file; there are currently no exceptions.
+  </p>
+  <p>
+    2026-09-13: Updated Hono, js-yaml and smol-toml after checking the npm advisory bulk response.
+    References:
+    <a href="https://github.com/advisories/GHSA-g6gw-c38x-mqfc">Hono parser advisory</a>,
+    <a href="https://github.com/advisories/GHSA-2883-xcg3-v3hh">js-yaml merge budget advisory</a>,
+    <a href="https://github.com/advisories/GHSA-7w5x-hrqm-74c2">smol-toml advisory</a>. Application
+    exploitability is not inferred solely from the package advisory.
   </p>
 </article>

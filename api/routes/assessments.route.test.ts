@@ -78,6 +78,14 @@ describe("assessments route", () => {
 
 	afterEach(() => connection.sqlite.close());
 
+	it("rejects malformed JSON without creating a record", async () => {
+		const project = await projectRepository.createProject({ ownerUserId, name: "Malformed body fixture", repoPath: "/tmp/malformed-body-fixture" });
+		const response = await app.request(`/api/projects/${project.id}/assessments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{" });
+		expect(response.status).toBe(400);
+		const listed = await app.request(`/api/projects/${project.id}/assessments`);
+		expect((await listed.json()).engagements).toEqual([]);
+	});
+
 	it("creates a project-owned engagement and rejects cross-owner access", async () => {
 		const project = await projectRepository.createProject({
 			ownerUserId,

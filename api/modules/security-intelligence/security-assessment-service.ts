@@ -14,7 +14,7 @@ import {
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
-import { ArtifactStorage } from "../scans/artifact-storage";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
 import {
 	observeDependencyChange,
 	toolLabel,

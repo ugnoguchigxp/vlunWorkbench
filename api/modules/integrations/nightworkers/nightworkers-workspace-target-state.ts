@@ -1,11 +1,12 @@
+import { authorizeConfiguredProjectPath } from "../../../security/configured-project-path";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { canonicalStringifySecurityIntelligenceValue } from "../../../../shared/security-intelligence-assessment-contract";
 import { authorizeProjectPathWithinRoots } from "../../../security/project-path-policy";
-import { buildDiffScanPlan } from "../../scans/diff-scan-plan";
-import { resolveGitDiff } from "../../scans/git-diff-resolver";
-import { runGitText } from "../../scans/git-command";
+import { buildDiffScanPlan } from "../../scans/execution/diff/diff-scan-plan";
+import { runGitText } from "../../scans/execution/diff/git-command";
+import { resolveGitDiff } from "../../scans/execution/diff/git-diff-resolver";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 
 export type CapturedWorkspaceTargetState = {
@@ -29,6 +30,7 @@ export async function captureWorkspaceTargetState(params: {
 	}
 	let canonicalWorkspacePath: string;
 	try {
+		await authorizeConfiguredProjectPath(params.workspacePath);
 		canonicalWorkspacePath = (
 			await authorizeProjectPathWithinRoots({
 				projectPath: params.workspacePath,

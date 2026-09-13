@@ -191,4 +191,28 @@ describe("project Intelligence structure model", () => {
 			edges: { related_to: 1 },
 		});
 	});
+
+	it("covers remaining filter, relationship, and metric fallbacks", () => {
+		expect(
+			filterModuleCandidates(modules, {
+				query: "authentication",
+				confidence: "high",
+				riskOnly: false,
+			}).map((module) => module.id),
+		).toEqual(["module:auth"]);
+		expect(
+			filterModuleCandidates(modules, {
+				query: "",
+				confidence: "medium",
+				riskOnly: false,
+			}).map((module) => module.id),
+		).toEqual(["module:core"]);
+		expect(buildModuleRelationshipContext(modules, "missing")).toBeNull();
+		expect(buildStructureMetrics(null, exportPayload(3))).toMatchObject({
+			inventoryFiles: null,
+			analyzedFiles: null,
+			modules: 0,
+			findings: 3,
+		});
+	});
 });

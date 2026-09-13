@@ -4,6 +4,7 @@ import {
 	runDynamicRequestSchema,
 	saveDynamicProfileRequestSchema,
 } from "../../shared/schemas/dynamic.schema";
+import type { AppEnv } from "../app/env";
 import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
@@ -24,10 +25,8 @@ import type {
 	ProjectRepository,
 } from "../modules/scans/repositories";
 import { ScanRepository } from "../modules/scans/repositories";
-import {
-	ProjectPathPolicyError,
-	resolveProjectPath,
-} from "../security/project-path-policy";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
+import { ProjectPathPolicyError } from "../security/project-path-policy";
 import {
 	ensureBuiltinProfileConfig,
 	executeDynamicRunCli,
@@ -45,6 +44,7 @@ function canonicalDynamicProfileId(profileId: string) {
 
 type DynamicRouteDeps = {
 	db: AppDatabase;
+	env?: AppEnv;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
 	processCapacity?: WebProcessCapacity;
@@ -59,7 +59,10 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
 		try {
-			await resolveProjectPath(repoPath);
+			await authorizeConfiguredProjectPath(
+				repoPath,
+				deps.env?.projectAllowedRoots,
+			);
 		} catch (error) {
 			if (error instanceof ProjectPathPolicyError) {
 				throw new HttpError(400, error.message);
@@ -79,6 +82,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
+		await assertExecutionPath(project.repoPath);
 		const [configs, applicability] = await Promise.all([
 			repo.listConfigsForProject(projectId),
 			Promise.all(

@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-12T16:11:04.600826+00:00",
+  "gitCommit": "ab1d6c2a44b5e9eba06f39361ed8f4cd058dad32",
+  "workingTreeDirty": true,
+  "platform": "darwin",
+  "status": "completed_with_targeted_reruns",
+  "oneShotVerifyPassed": false,
+  "verificationNote": "The full verify run stopped in tests. A newly added fixture expectation and two process-heavy suites were corrected/retried. Subsequent checks were executed separately; do not describe this as a clean single-command pass.",
+  "testInventory": {
+    "ok": true,
+    "total": 520,
+    "vitest": 94,
+    "bun": 426,
+    "duplicates": [],
+    "strategy": "automatic-discovery-exactly-once"
+  },
+  "api": {
+    "fullRunFiles": 424,
+    "fullRunFailedFiles": [
+      "api/modules/api-schema-fuzz/schemathesis-runner.test.ts",
+      "api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
+      "api/modules/scans/execution/profile-runner.test.ts"
+    ],
+    "additionalFileRuns": {
+      "files": 10,
+      "failures": []
+    },
+    "failedFilesAfterTargetedReruns": [],
+    "processFixtureTimeoutMs": 20000,
+    "postDependencyUpdate": {
+      "files": 28,
+      "failures": []
+    }
+  },
+  "web": {
+    "files": 97,
+    "passedTests": 461,
+    "failedTests": 0
+  },
+  "browser": {
+    "passedTests": 16,
+    "failedTests": 0
+  },
+  "typecheck": "passed",
+  "lint": "passed",
+  "format": "passed",
+  "build": "passed",
+  "artifactTracking": "passed",
+  "audit": {
+    "ok": true,
+    "exitCode": 0,
+    "total": 0,
+    "blocking": [],
+    "source": "https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
+    "transport": "Temporary loopback relay to official npm via curl because Bun external HTTPS timed out. Bun installed and checked integrity; relay was stopped and no registry setting retained."
+  },
+  "updatedDependencies": {
+    "hono": "4.13.5",
+    "js-yaml": "3.15.2",
+    "smol-toml": "1.7.1"
+  },
+  "frozenInstall": "passed_without_lock_changes",
+  "recoveryDrill": {
+    "ok": true,
+    "measuredAt": "2026-09-12T15:32:25.208Z",
+    "platform": "darwin",
+    "integrity": "ok",
+    "appliedMigrations": 40,
+    "restoredProjects": 1,
+    "restoredScans": 1,
+    "verifiedArtifacts": 1,
+    "scope": "Disposable fixture DB and separately copied artifact bytes; no production restore or human handoff claim."
+  },
+  "historicalCapabilityIntegrity": {
+    "ok": true,
+    "releaseCommit": "16f398d626a89f92ec1b6872bb3a5df69ecd56c3",
+    "recordedStatus": "passed",
+    "verifiedArtifacts": 16,
+    "scope": "Stored artifact integrity; not a measurement of the current working tree."
+  },
+  "javaHoldout": {
+    "result": "java-external-2026-09-13.json",
+    "metrics": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 2,
+      "tn": 2,
+      "recall": 0,
+      "precision": null
+    },
+    "capabilityThresholdMet": false
+  },
+  "ciCdChanged": false,
+  "contextTools": {
+    "context_compile": 1,
+    "compile_eval": 1
+  },
+  "localLogs": {
+    ".artifacts/improvement/verify-final.log": "sha256:8580a6b4f90d85dc6654cf3aafa4926a0261c317b84f2f121a60d2d37c9f6438",
+    ".artifacts/improvement/additional-tests.log": "sha256:824eda0c283923242ea5299e0d717ebf5aa2206e8864669278c04e3dd662a88a",
+    ".artifacts/improvement/workspace-state-final.log": "sha256:466c5391a087ad1e6fdb92bdf3660d9934afd5c63be47568077d9ef37e3805cd",
+    ".artifacts/improvement/profile-runner-final.log": "sha256:eeda78b2e90a6bb036fd148f30a193fb8c3cf09bb64eba5a847fba67924f9ee9",
+    ".artifacts/improvement/dependency-route-tests.log": "sha256:05a0bc4cc9fe9bcaef808aa47771f3e5a73a45d087ce8fae9f17ffe19a68f94d",
+    ".artifacts/improvement/web-dependencies.log": "sha256:3ef445f6ba3416ea4f38a341d94b51735d20aada4eaa27dc3ca8867c2afa1d6f",
+    ".artifacts/improvement/browser-dependencies.log": "sha256:ea97b832f12a0e9e57044910cdeebf3276dc5e5d03daccaf0fc61045785d9776",
+    ".artifacts/improvement/typecheck-dependencies.log": "sha256:0bc77e80b0f99122e940e67ebfdac5b68a11f31344ed1efc6779982a6e91d9be",
+    ".artifacts/improvement/logging-final.log": "sha256:c9896f15145acb58e953074466b0cf5a84ad33e3530ab0a8fe9b3efb04c894a9",
+    ".artifacts/improvement/static-fixture-final.log": "sha256:bb8e1834e146c87113f2fbeb6b278176e3137b48a238996adae90430dbcd3152",
+    ".artifacts/improvement/recovery-drill.log": "sha256:1780f751290ae6ba3e8b7a9b18563977080352cf6bb5eb83b440a81c2156a345",
+    ".artifacts/improvement/evidence-verification-final.json": "sha256:72d2b8b75911f24aa4ced6549dfcc554c07664cfc3780088ab53bd9c56064c53",
+    ".artifacts/improvement/build-final.log": "sha256:0500844502fb6c3c7f30a6158790bdd8525a88f21051fce00d83fb055e9c2bf8",
+    ".artifacts/improvement/bundle-final.json": "sha256:02e1d5df55e6df563da50e9d931f6de9c2fba19bca178391bc7651f5a53b837d",
+    ".artifacts/improvement/audit-final.log": "sha256:9eecdd3aeb002044620c03b0c0d16abea96cc6156756ad20612a6b65372a4a5e",
+    ".artifacts/improvement/artifact-tracking-final.log": "sha256:192d8a2b713dd7841f0d7aa480361a5733df176cbbb031b0272c76ac03dccc14",
+    ".artifacts/improvement/frozen-install.log": "sha256:355dd5531725f03e3ff39b312c8e6f22f515b4068d3446cd795cc86ec3112406"
+  }
+}

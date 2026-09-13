@@ -10,8 +10,15 @@ import {
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
-} from "../scans/artifact-storage";
+} from "../scans/execution/lifecycle/artifact-storage";
 import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+import { redactSecrets } from "../scans/findings/normalizers/redaction";
+import {
+	checkToolVersion,
+	runToolProcess,
+	type ToolExecutionConfig,
+} from "../scans/tools/tool-process-runner";
+import { evaluateApiReadonlyPolicy } from "./api-readonly-policy";
 import { readApiSchemaDocument } from "./api-schema-document";
 import {
 	buildGraphqlReadonlyOperationPolicy,
@@ -19,19 +26,12 @@ import {
 	loadGraphqlReadonlyOperationPolicy,
 	parseGraphqlReadonlySchema,
 } from "./graphql-readonly-policy";
-import {
-	checkToolVersion,
-	runToolProcess,
-	type ToolExecutionConfig,
-} from "../scans/tools/tool-process-runner";
-import { evaluateApiReadonlyPolicy } from "./api-readonly-policy";
 import { parseOpenApiDocument } from "./openapi-document";
 import {
 	buildOpenApiReadonlyOperationPolicy,
 	type OpenApiReadonlyOperationPolicyV1,
 } from "./openapi-readonly-operation-policy";
 import { normalizeSchemathesis } from "./schemathesis-normalizer";
-import { redactSecrets } from "../scans/normalizers/redaction";
 import { readStrictJsonDocumentBytes } from "./strict-json-document";
 
 const sha256 = (value: Uint8Array) =>

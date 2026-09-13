@@ -389,3 +389,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution requirements, [CHANGELOG
 ## License
 
 vulnWorkbench is released under the [MIT License](LICENSE.md). Each integrated scanner and container image remains subject to its own upstream license.
+
+
+### Project access and operational references
+
+Set `PROJECT_ALLOWED_ROOTS` to comma-separated absolute project directories before registering or scanning a project. An empty list denies access; existing records and saved evidence remain available. MCP and integration client roots impose additional restrictions. Scanners default to Docker; explicitly configured host settings remain effective.
+
+- [Environment reference](spec/generated/environment.md) (`bun run env:reference`)
+- [Operational onboarding and recovery](spec/decisions/operator-onboarding.html)
+- [Measurement scope and remaining limitations](spec/evidence/capability-measurement-notes.html)
+- Command index: `bun run commands` (all commands: `bun run commands -- --all`).

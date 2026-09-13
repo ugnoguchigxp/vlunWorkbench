@@ -13,23 +13,23 @@ import {
 	runtimeIsolationExecutionPlanBinding,
 } from "../modules/runtime-isolation/runtime-isolation-preflight";
 import { runtimeScannerImageRequirementsForSteps } from "../modules/runtime-isolation/runtime-isolation-provider-factory";
-import { buildDiffScanPlan } from "../modules/scans/diff-scan-plan";
-import type { FullSourceSnapshot } from "../modules/scans/execution/lifecycle/full-source-snapshot";
+import { buildDiffScanPlan } from "../modules/scans/execution/diff/diff-scan-plan";
 import {
 	GitDiffResolutionError,
 	resolveGitDiff,
-} from "../modules/scans/git-diff-resolver";
-import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
-import { resolveProfileSteps } from "../modules/scans/profile-runner";
+} from "../modules/scans/execution/diff/git-diff-resolver";
+import type { FullSourceSnapshot } from "../modules/scans/execution/lifecycle/full-source-snapshot";
 import {
 	applyStrictProfileRequirements,
 	buildScanExecutionPlan,
-} from "../modules/scans/scan-execution-plan-builder";
+} from "../modules/scans/execution/scan-execution-plan-builder";
 import {
 	executionConfigFromPolicy,
 	resolveScanExecutionPolicy,
-} from "../modules/scans/scan-execution-policy";
-import { runScanPreflight } from "../modules/scans/scan-preflight";
+} from "../modules/scans/execution/scan-execution-policy";
+import { runScanPreflight } from "../modules/scans/execution/scan-preflight";
+import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
+import { resolveProfileSteps } from "../modules/scans/profile-runner";
 import { resolveScanScope } from "../modules/scans/target-scope";
 import { normalizeToolExecutionConfig } from "../modules/scans/tools/tool-process-runner";
 import type { ProjectScanRouteContext } from "./project-scan.route";
@@ -58,7 +58,7 @@ export function createProjectScanPreflightRoute(
 				allowExperimental: z.boolean().default(false).optional(),
 				stepId: z.string().optional(),
 				consentProjectCodeExecution: z.boolean().default(false).optional(),
-				runner: z.enum(["host", "docker"]).default("host").optional(),
+				runner: z.enum(["host", "docker"]).optional(),
 				imageRef: z.string().optional(),
 				imageTar: z.string().optional(),
 				attestationSubject: z.string().min(1).max(500).optional(),

@@ -12,6 +12,7 @@ import { readProjectSupplementalModelEvidence } from "../modules/threat-models/p
 import { readProjectModelSources } from "../modules/threat-models/project-source-reader";
 import { generateThreatHypotheses } from "../modules/threat-models/threat-hypothesis-runner";
 import { ThreatModelRepository } from "../modules/threat-models/threat-model-repository";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
 
 export function createThreatModelsRoute(deps: {
 	db: AppDatabase;
@@ -25,7 +26,12 @@ export function createThreatModelsRoute(deps: {
 		repoPath: string;
 		canonicalRepoPath: string | null;
 	}) => {
-		const projectRoot = project.canonicalRepoPath ?? project.repoPath;
+		const projectRoot = (
+			await authorizeConfiguredProjectPath(
+				project.canonicalRepoPath ?? project.repoPath,
+				deps.env?.projectAllowedRoots,
+			)
+		).canonicalPath;
 		const [sources, supplemental, runtimeItems, technology] = await Promise.all(
 			[
 				readProjectModelSources(projectRoot),

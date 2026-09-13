@@ -1,4 +1,6 @@
+import { sanitizeUntrustedHtml } from "../../../shared/html-sanitization";
 import { marked } from "marked";
+import sanitizeHtml from "sanitize-html";
 
 const markdownRenderer = new marked.Renderer();
 const renderSafeLink = markdownRenderer.link.bind(markdownRenderer);
@@ -32,5 +34,46 @@ export const renderMarkdownToSafeHtml = (markdown: string): string => {
 		gfm: true,
 		renderer: markdownRenderer,
 	});
-	return typeof rendered === "string" ? rendered : "";
+	return sanitizeUntrustedHtml(
+		typeof rendered === "string" ? rendered : "",
+		sanitizeHtml,
+		{
+			allowedTags: [
+				"p",
+				"br",
+				"hr",
+				"h1",
+				"h2",
+				"h3",
+				"h4",
+				"h5",
+				"h6",
+				"blockquote",
+				"ul",
+				"ol",
+				"li",
+				"strong",
+				"em",
+				"del",
+				"pre",
+				"code",
+				"a",
+				"table",
+				"thead",
+				"tbody",
+				"tr",
+				"th",
+				"td",
+			],
+			allowedAttributes: {
+				a: ["href", "title"],
+				code: ["class"],
+				th: ["align"],
+				td: ["align"],
+				ol: ["start"],
+			},
+			allowedSchemes: ["http", "https", "mailto"],
+			allowProtocolRelative: false,
+		},
+	);
 };

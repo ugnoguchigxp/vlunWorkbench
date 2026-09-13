@@ -1,8 +1,8 @@
-import { ScanArtifactSink } from "../scans/artifact-sink";
+import { ScanArtifactSink } from "../scans/execution/lifecycle/artifact-sink";
 import {
 	ArtifactStorage,
 	type ArtifactStorage as ScanArtifactStorage,
-} from "../scans/artifact-storage";
+} from "../scans/execution/lifecycle/artifact-storage";
 import type { ArtifactRepository } from "../scans/repositories";
 import type { DastArtifactStorage } from "./dast-artifact-storage";
 import { DastArtifactStorage as DefaultDastArtifactStorage } from "./dast-artifact-storage";

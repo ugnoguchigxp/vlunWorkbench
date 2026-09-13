@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
 	ArtifactSizeLimitError,
 	type ArtifactStorage,
-} from "../../scans/artifact-storage";
+} from "../../scans/execution/lifecycle/artifact-storage";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 
 type ReportArtifact = {

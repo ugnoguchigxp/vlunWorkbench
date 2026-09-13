@@ -1,14 +1,14 @@
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import {
-	ArtifactStorage,
 	type ArtifactSaveResult,
-} from "../modules/scans/artifact-storage";
+	ArtifactStorage,
+} from "../modules/scans/execution/lifecycle/artifact-storage";
 import {
 	executionConfigFromPolicy,
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
-} from "../modules/scans/scan-execution-policy";
+} from "../modules/scans/execution/scan-execution-policy";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -17,6 +17,7 @@ import {
 } from "../modules/scans/repositories";
 import type { ToolExecutionConfig } from "../modules/scans/tools/tool-process-runner";
 import { SettingsRepository } from "../modules/settings/settings.repository";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 export interface ScannerCliRunResult {
@@ -142,6 +143,7 @@ export async function executeScannerCli<
 			return;
 		}
 
+		await authorizeConfiguredProjectPath(project.repoPath);
 		const toolVersion = await runner.checkVersion();
 		if (!toolVersion) {
 			writeResult({

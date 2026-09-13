@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
-import { ScanArtifactSink } from "../modules/scans/artifact-sink";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
-import { normalizeFixture } from "../modules/scans/normalizers/fixture";
+import { ScanArtifactSink } from "../modules/scans/execution/lifecycle/artifact-sink";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import { normalizeFixture } from "../modules/scans/findings/normalizers/fixture";
 import {
 	ArtifactRepository,
 	FindingRepository,

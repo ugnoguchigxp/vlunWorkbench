@@ -20,12 +20,12 @@ import { runBoundedProcess } from "../processes/bounded-process-runner";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
-} from "../scans/artifact-storage";
+} from "../scans/execution/lifecycle/artifact-storage";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import {
 	redactJsonSecrets,
 	redactSecrets,
-} from "../scans/normalizers/redaction";
-import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+} from "../scans/findings/normalizers/redaction";
 import {
 	ZAP_ACTIVE_MAX_REPORT_BYTES,
 	ZAP_ACTIVE_POLICY_ID,

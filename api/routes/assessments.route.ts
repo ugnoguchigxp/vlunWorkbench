@@ -13,12 +13,12 @@ import { HttpError } from "../modules/auth/errors";
 import { ActiveAssessmentRepository } from "../modules/dast/active-assessment-repository";
 import type { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
 import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
+import { listContainerFixtures } from "../modules/runtime-scans/container-fixture-reset";
+import type { ScanDiagnosticRunner } from "../modules/scans/handoff/scan-diagnostic-runner";
 import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
-import { listContainerFixtures } from "../modules/runtime-scans/container-fixture-reset";
 
 export function createAssessmentsRoute(deps: {
 	db: AppDatabase;
@@ -60,7 +60,7 @@ export function createAssessmentsRoute(deps: {
 		const projectId = c.req.param("projectId");
 		await assertProjectOwner(projectId, user.userId);
 		const parsed = createAssessmentEngagementSchema.safeParse(
-			await c.req.json(),
+			await c.req.json().catch(() => null),
 		);
 		if (!parsed.success || parsed.data.projectId !== projectId) {
 			throw new HttpError(
@@ -80,7 +80,7 @@ export function createAssessmentsRoute(deps: {
 		const user = getAuthContextUser(c);
 		const parsed = z
 			.object({ status: assessmentEngagementStatusSchema })
-			.safeParse(await c.req.json());
+			.safeParse(await c.req.json().catch(() => null));
 		if (!parsed.success) throw new HttpError(400, "Invalid assessment status");
 		const engagement = await repository
 			.setEngagementStatus(

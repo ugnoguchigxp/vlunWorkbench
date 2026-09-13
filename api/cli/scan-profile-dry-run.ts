@@ -1,9 +1,9 @@
 import type { ScanExecutionPlan } from "../../shared/schemas/scan-execution-plan.schema";
 import type { ScanPreflightResult } from "../../shared/schemas/scan-preflight.schema";
 import type { ScanProfile } from "../../shared/schemas/scan-profile.schema";
-import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import type { ScanProfileResolution } from "../../shared/schemas/scan-profile-catalog.schema";
-import { hashResolvedProfile } from "../modules/scans/resolved-profile";
+import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
+import { hashResolvedProfile } from "../modules/scans/execution/resolved-profile";
 import type { ToolRunnerKind } from "../modules/scans/tools/tool-process-runner";
 
 export function buildScanProfileDryRun(params: {

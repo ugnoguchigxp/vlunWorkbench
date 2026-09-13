@@ -1,3 +1,4 @@
+import { withProjectPathRoots } from "../../security/configured-project-path";
 import { spawn } from "node:child_process";
 import { readAppEnv } from "../../app/env";
 import { createDbConnection, type DbConnection } from "../../db";
@@ -16,13 +17,18 @@ export async function executeStaticIntelligenceMcpTool(
 	try {
 		const env = readAppEnv(options.env);
 		dbConnection = createDbConnection(env.databaseUrl);
-		const result = await tool.handler({
-			db: dbConnection.db,
-			input,
-			allowedProjectRoots: env.staticIntelligenceAllowedProjectRoots ?? [],
-			projectCreationPolicy:
-				env.staticIntelligenceProjectCreationPolicy ?? "registered_only",
-		});
+		const db = dbConnection.db;
+		const result = await withProjectPathRoots(
+			env.projectAllowedRoots ?? [],
+			() =>
+				tool.handler({
+					db,
+					input,
+					allowedProjectRoots: env.staticIntelligenceAllowedProjectRoots ?? [],
+					projectCreationPolicy:
+						env.staticIntelligenceProjectCreationPolicy ?? "registered_only",
+				}),
+		);
 		if (!tool.readOnlyHint) launchPrepareWorker(result, options.env);
 		return jsonToolContent(result);
 	} catch (error) {

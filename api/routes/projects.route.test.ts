@@ -1,11 +1,23 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { readAppEnv } from "../app/env";
 import { HttpError } from "../modules/auth/errors";
 import { ProcessCapacityExceededError } from "../modules/processes/web-process-capacity";
 import type { RuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-provider-factory";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { createProjectsRoute } from "./projects.route";
+
+// Snapshot a tiny real repository, not the developer's changing worktree.
+const preflightRoot = mkdtempSync(path.join(os.tmpdir(), "project-preflight-"));
+writeFileSync(path.join(preflightRoot, "README.md"), "Preflight fixture\n");
+for (const args of [["init", "-b", "main"], ["config", "user.email", "fixture@example.invalid"], ["config", "user.name", "Fixture"], ["add", "README.md"], ["commit", "-m", "fixture"]]) {
+	execFileSync("git", args, { cwd: preflightRoot, stdio: "pipe" });
+}
+afterAll(() => rmSync(preflightRoot, { recursive: true, force: true }));
 
 const mockResolveProjectPath = vi.fn(async (projectPath: string) => {
 	if (projectPath === "/invalid/path") {
@@ -31,7 +43,7 @@ describe("Projects Route", () => {
 					id: PREFLIGHT_PROJECT_ID,
 					name: "Preflight Project",
 					ownerUserId: "user-123",
-					repoPath: process.cwd(),
+					repoPath: preflightRoot,
 				};
 			}
 			if (id === "p-1") {
@@ -83,7 +95,7 @@ describe("Projects Route", () => {
 		createProjectsRoute({
 			projectRepository: mockProjectRepo as any,
 			projectDeletionService: mockProjectDeletionService as any,
-			env: readAppEnv({ NODE_ENV: "test" }),
+			env: readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" }),
 			resolveProjectPath: mockResolveProjectPath,
 		}),
 	);
@@ -189,7 +201,7 @@ describe("Projects Route", () => {
 		expect(body.message).toContain("does not exist");
 	});
 
-	it("POST / accepts a repository anywhere on the filesystem", async () => {
+	it("POST / honors the explicitly injected trusted resolver", async () => {
 		const unrestrictedApp = new Hono();
 		unrestrictedApp.use("*", async (c, next) => {
 			c.set("authUser", {
@@ -209,7 +221,7 @@ describe("Projects Route", () => {
 			"/",
 			createProjectsRoute({
 				projectRepository: mockProjectRepo as any,
-				env: readAppEnv({ NODE_ENV: "test" }),
+				env: readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" }),
 				resolveProjectPath: mockResolveProjectPath,
 			}),
 		);
@@ -277,7 +289,7 @@ describe("Projects Route", () => {
 	it(
 		"resolves persisted runtime settings for every preflight request",
 		async () => {
-			const staleEnv = readAppEnv({ NODE_ENV: "test" });
+			const staleEnv = readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" });
 			staleEnv.scanExecutionMode = "docker";
 			staleEnv.scanDockerImage = "missing-stale-toolbox:image";
 			const resolveRuntimeEnv = vi.fn(async () => ({
@@ -337,7 +349,7 @@ describe("Projects Route", () => {
 				"/",
 				createProjectsRoute({
 					projectRepository: mockProjectRepo as any,
-					env: readAppEnv({ NODE_ENV: "test" }),
+					env: readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" }),
 					resolveProjectPath: mockResolveProjectPath,
 					resolveRuntimeIsolationProviderFactory,
 				}),
@@ -483,7 +495,7 @@ describe("Projects Route", () => {
 				"/",
 				createProjectsRoute({
 					projectRepository: mockProjectRepo as any,
-					env: readAppEnv({ NODE_ENV: "test" }),
+					env: readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" }),
 					resolveProjectPath: mockResolveProjectPath,
 					runtimeIsolationProviderFactory,
 					resolveFullScanTarget: async () => ({
@@ -493,8 +505,8 @@ describe("Projects Route", () => {
 						scopeContentDigest: "f".repeat(64),
 					}),
 					materializeScopedSourceSnapshot: async () => ({
-						rootPath: process.cwd(),
-						projectPath: process.cwd(),
+						rootPath: preflightRoot,
+						projectPath: preflightRoot,
 						sourceRevision: "e".repeat(40),
 						snapshotDigest: "f".repeat(64),
 						cleanup: cleanupSourceSnapshot,
@@ -554,7 +566,7 @@ describe("Projects Route", () => {
 	});
 
 	it("resolves persisted runtime settings for every scan start request", async () => {
-		const staleEnv = readAppEnv({ NODE_ENV: "test" });
+		const staleEnv = readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" });
 		const resolveRuntimeEnv = vi.fn(async () => ({
 			...staleEnv,
 			webScanStepTimeoutMaxSec: 120,
@@ -622,7 +634,7 @@ describe("Projects Route", () => {
 				projectRepository: mockProjectRepo as any,
 					scanRepository: scanRepository as any,
 					scanSupervisor: scanSupervisor as any,
-					env: readAppEnv({ NODE_ENV: "test" }),
+					env: readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" }),
 					resolveProjectPath: mockResolveProjectPath,
 				}),
 		);
@@ -695,7 +707,7 @@ describe("Projects Route", () => {
 				projectRepository: mockProjectRepo as any,
 				scanRepository: scanRepository as any,
 				scanSupervisor: { launch: vi.fn() } as any,
-				env: readAppEnv({ NODE_ENV: "test" }),
+				env: readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" }),
 				resolveProjectPath: mockResolveProjectPath,
 			}),
 		);
@@ -742,7 +754,7 @@ describe("Projects Route", () => {
 				projectRepository: mockProjectRepo as any,
 				scanRepository: scanRepository as any,
 				scanSupervisor: scanSupervisor as any,
-				env: readAppEnv({ NODE_ENV: "test" }),
+				env: readAppEnv({ NODE_ENV: "test", PROJECT_ALLOWED_ROOTS: preflightRoot, SCAN_EXECUTION_MODE: "host", ALLOW_HOST_SCANNER_EXECUTION: "true" }),
 				resolveProjectPath: mockResolveProjectPath,
 			}),
 		);

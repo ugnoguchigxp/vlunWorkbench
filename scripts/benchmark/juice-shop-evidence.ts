@@ -6,7 +6,7 @@ import type {
 	SecurityProbe,
 	SecurityProbeFinding,
 } from "../../api/modules/dast/security-probe-detector";
-import { canonicalJson } from "../../api/modules/scans/diff-scan-plan";
+import { canonicalJson } from "../../api/modules/scans/execution/diff/diff-scan-plan";
 
 export type JuiceShopRequestEvidence = {
 	method: string;

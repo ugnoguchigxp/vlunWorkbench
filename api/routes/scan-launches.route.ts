@@ -12,6 +12,7 @@ import { analyzeProjectCapabilities } from "../modules/project-capabilities/plug
 import { evaluateScanReadiness } from "../modules/scans/execution/scan-readiness-service";
 import { getScanProfileDefinition } from "../modules/scans/profile-definitions";
 import type { ProjectRepository } from "../modules/scans/repositories";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
 
 type ScanLaunchesRouteDeps = {
 	projectRepository: ProjectRepository;
@@ -60,6 +61,10 @@ export function createScanLaunchesRoute(deps: ScanLaunchesRouteDeps) {
 			if (project.ownerUserId !== authUser.userId) {
 				throw new HttpError(403, "Forbidden");
 			}
+			await authorizeConfiguredProjectPath(
+				project.repoPath,
+				(await deps.resolveRuntimeEnv()).projectAllowedRoots,
+			);
 			const request = c.req.valid("json") as ScanLaunchPreviewRequest;
 			const sourceInput = request.input as {
 				kind?: string;

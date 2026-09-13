@@ -13,11 +13,11 @@ import {
 	isUrlInDastScope,
 	validateDastTargetConfig,
 } from "../dast/target-validator";
-import { canonicalJson } from "../scans/diff-scan-plan";
 import {
 	buildDedicatedProfileAdmissionMetadata,
 	createDedicatedLaunchAttempt,
 } from "../scans/dedicated-profile-admission";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
 import { ScanLaunchAttemptRepository } from "../scans/execution/scan-launch-attempt-repository";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { BusinessLogicRepository } from "./business-logic-repository";

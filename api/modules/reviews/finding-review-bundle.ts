@@ -1,21 +1,21 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { redactSecrets } from "../scans/normalizers/redaction";
-import type {
-	ReviewInputBundle,
-	ReviewFindingInfo,
-	ReviewScanContext,
-	ReviewEvidenceInfo,
-	ReviewSourceSnapshot,
-} from "./finding-review-types";
-import type { AppDatabase } from "../../db";
 import { eq } from "drizzle-orm";
+import type { AppDatabase } from "../../db";
 import {
 	scanArtifacts,
 	scanExecutionPlans,
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
+import { redactSecrets } from "../scans/findings/normalizers/redaction";
+import type {
+	ReviewEvidenceInfo,
+	ReviewFindingInfo,
+	ReviewInputBundle,
+	ReviewScanContext,
+	ReviewSourceSnapshot,
+} from "./finding-review-types";
 
 export interface ExtractSnippetOptions {
 	maxLines?: number;

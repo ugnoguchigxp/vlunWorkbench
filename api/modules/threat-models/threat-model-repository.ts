@@ -9,7 +9,7 @@ import {
 	threatModelEvidences,
 	threatModelRuns,
 } from "../../db/schema";
-import { canonicalJson } from "../scans/diff-scan-plan";
+import { canonicalJson } from "../scans/execution/diff/diff-scan-plan";
 
 export class ThreatModelRepository {
 	constructor(private readonly db: AppDatabase) {}

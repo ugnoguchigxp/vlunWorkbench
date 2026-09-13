@@ -1,0 +1,2712 @@
+{
+  "schemaVersion": 1,
+  "scope": "Literal Hono route registrations; dynamic and mounted prefixes require composition review.",
+  "routes": [
+    {
+      "file": "api/routes/admin-users.route.ts",
+      "line": 100,
+      "method": "POST",
+      "relativePath": "/users/:userId/enable",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"userId\")"
+      ],
+      "validationLocation": "api/routes/admin-users.route.ts",
+      "boundaryReview": "/api/admin: requireAdmin (hono-routes.ts). User IDs resolve through AuthService; enable/disable have no body.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/admin-users.route.ts",
+      "line": 91,
+      "method": "POST",
+      "relativePath": "/users/:userId/disable",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"userId\")"
+      ],
+      "validationLocation": "api/routes/admin-users.route.ts",
+      "boundaryReview": "/api/admin: requireAdmin (hono-routes.ts). User IDs resolve through AuthService; enable/disable have no body.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/admin-users.route.ts",
+      "line": 79,
+      "method": "POST",
+      "relativePath": "/users/:userId/reset-password",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", resetPasswordSchema",
+        "c.req.valid(\"json\")",
+        "c.req.param(\"userId\")"
+      ],
+      "validationLocation": "api/routes/admin-users.route.ts",
+      "boundaryReview": "/api/admin: requireAdmin (hono-routes.ts). User IDs resolve through AuthService; enable/disable have no body.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/admin-users.route.ts",
+      "line": 64,
+      "method": "PATCH",
+      "relativePath": "/users/:userId",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", updateUserSchema",
+        "c.req.valid(\"json\")",
+        "c.req.param(\"userId\")"
+      ],
+      "validationLocation": "api/routes/admin-users.route.ts",
+      "boundaryReview": "/api/admin: requireAdmin (hono-routes.ts). User IDs resolve through AuthService; enable/disable have no body.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/admin-users.route.ts",
+      "line": 54,
+      "method": "POST",
+      "relativePath": "/users",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", createUserSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/admin-users.route.ts",
+      "boundaryReview": "/api/admin: requireAdmin (hono-routes.ts). User IDs resolve through AuthService; enable/disable have no body.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/admin-users.route.ts",
+      "line": 50,
+      "method": "GET",
+      "relativePath": "/users",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/admin-users.route.ts",
+      "boundaryReview": "/api/admin: requireAdmin (hono-routes.ts). User IDs resolve through AuthService; enable/disable have no body.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/agentic-search.route.ts",
+      "line": 36,
+      "method": "POST",
+      "relativePath": "/",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", AgenticSearchRequestSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/agentic-search.route.ts",
+      "boundaryReview": "Authenticated user passed to service; shared knowledge search is not project-owned. AgenticSearchRequestSchema validates body.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/artifacts.route.ts",
+      "line": 109,
+      "method": "PUT",
+      "relativePath": "/:artifactId",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"param\", ArtifactParamSchema",
+        "zValidator(\"json\", UpdateArtifactSchema",
+        "c.req.valid(\"param\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/artifacts.route.ts",
+      "boundaryReview": "ArtifactParamSchema and query/body schemas; conversation userId scoped SQL before read/update.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/artifacts.route.ts",
+      "line": 72,
+      "method": "GET",
+      "relativePath": "/:artifactId",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"param\", ArtifactParamSchema",
+        "c.req.valid(\"param\")"
+      ],
+      "validationLocation": "api/routes/artifacts.route.ts",
+      "boundaryReview": "ArtifactParamSchema and query/body schemas; conversation userId scoped SQL before read/update.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/artifacts.route.ts",
+      "line": 40,
+      "method": "GET",
+      "relativePath": "/",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", ArtifactsQuerySchema",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/artifacts.route.ts",
+      "boundaryReview": "ArtifactParamSchema and query/body schemas; conversation userId scoped SQL before read/update.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessment-campaigns.route.ts",
+      "line": 5,
+      "method": "GET",
+      "relativePath": "/",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/assessment-campaigns.route.ts",
+      "boundaryReview": "Authenticated read-only fixed catalog; no body, query or owned record input.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 42,
+      "method": "GET",
+      "relativePath": "/assessment-controls",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 46,
+      "method": "GET",
+      "relativePath": "/active-assessment-container-fixtures",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 50,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/assessments",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 58,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/assessments",
+      "validators": [
+        "createAssessmentEngagementSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 79,
+      "method": "PATCH",
+      "relativePath": "/assessments/:assessmentId/status",
+      "validators": [],
+      "inputAccess": [
+        "c.req.json()",
+        "c.req.param(\"assessmentId\")"
+      ],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 100,
+      "method": "GET",
+      "relativePath": "/scans/:scanRunId/coverage",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 110,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/active-assessment-runs",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 118,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/active-assessment-runs",
+      "validators": [
+        "runActiveAssessmentRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/assessments.route.ts",
+      "line": 184,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/active-assessment-runs/:activeAssessmentRunId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.param(\"activeAssessmentRunId\")"
+      ],
+      "validationLocation": "api/routes/assessments.route.ts",
+      "boundaryReview": "assertOwner plus userId-scoped AssessmentRepository. Shared request/status schemas; malformed JSON -> 400.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/auth.route.ts",
+      "line": 47,
+      "method": "GET",
+      "relativePath": "/me",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/auth.route.ts",
+      "boundaryReview": "Login/refresh/logout public by explicit middleware allowlist; me requires auth. Credentials schema and AuthService/session verification; cookie and CSRF rules in parent.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/auth.route.ts",
+      "line": 41,
+      "method": "POST",
+      "relativePath": "/logout",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/auth.route.ts",
+      "boundaryReview": "Login/refresh/logout public by explicit middleware allowlist; me requires auth. Credentials schema and AuthService/session verification; cookie and CSRF rules in parent.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/auth.route.ts",
+      "line": 31,
+      "method": "POST",
+      "relativePath": "/refresh",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/auth.route.ts",
+      "boundaryReview": "Login/refresh/logout public by explicit middleware allowlist; me requires auth. Credentials schema and AuthService/session verification; cookie and CSRF rules in parent.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/auth.route.ts",
+      "line": 22,
+      "method": "POST",
+      "relativePath": "/login",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", loginSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/auth.route.ts",
+      "boundaryReview": "Login/refresh/logout public by explicit middleware allowlist; me requires auth. Credentials schema and AuthService/session verification; cookie and CSRF rules in parent.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/business-logic.route.ts",
+      "line": 70,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/business-logic-scenarios",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/business-logic.route.ts",
+      "boundaryReview": "assertOwner; scenario/generate schemas; scenario execution additionally resolves owned engagement and target.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/business-logic.route.ts",
+      "line": 78,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/business-logic-scenarios/generate",
+      "validators": [
+        "generateRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/business-logic.route.ts",
+      "boundaryReview": "assertOwner; scenario/generate schemas; scenario execution additionally resolves owned engagement and target.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertOwner",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/business-logic.route.ts",
+      "line": 118,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/business-logic-scenarios",
+      "validators": [
+        "businessLogicScenarioSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/business-logic.route.ts",
+      "boundaryReview": "assertOwner; scenario/generate schemas; scenario execution additionally resolves owned engagement and target.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertOwner",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/business-logic.route.ts",
+      "line": 148,
+      "method": "POST",
+      "relativePath": "/business-logic-scenarios/:scenarioId/runs",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scenarioId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/business-logic.route.ts",
+      "boundaryReview": "assertOwner; scenario/generate schemas; scenario execution additionally resolves owned engagement and target.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/chat.route.ts",
+      "line": 207,
+      "method": "POST",
+      "relativePath": "/stream",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", chatRequestSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/chat.route.ts",
+      "boundaryReview": "ConversationParamSchema/query/body schemas; SQL and chat service scope to authenticated userId.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/chat.route.ts",
+      "line": 195,
+      "method": "POST",
+      "relativePath": "/",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", chatRequestSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/chat.route.ts",
+      "boundaryReview": "ConversationParamSchema/query/body schemas; SQL and chat service scope to authenticated userId.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/chat.route.ts",
+      "line": 165,
+      "method": "DELETE",
+      "relativePath": "/conversations/:conversationId",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"param\", ConversationParamSchema",
+        "c.req.valid(\"param\")"
+      ],
+      "validationLocation": "api/routes/chat.route.ts",
+      "boundaryReview": "ConversationParamSchema/query/body schemas; SQL and chat service scope to authenticated userId.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/chat.route.ts",
+      "line": 129,
+      "method": "GET",
+      "relativePath": "/conversations/:conversationId/retrieval-logs",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", RetrievalLogsQuerySchema",
+        "zValidator(\"param\", ConversationParamSchema",
+        "c.req.valid(\"param\")",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/chat.route.ts",
+      "boundaryReview": "ConversationParamSchema/query/body schemas; SQL and chat service scope to authenticated userId.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/chat.route.ts",
+      "line": 66,
+      "method": "GET",
+      "relativePath": "/conversations/:conversationId/messages",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"param\", ConversationParamSchema",
+        "c.req.valid(\"param\")"
+      ],
+      "validationLocation": "api/routes/chat.route.ts",
+      "boundaryReview": "ConversationParamSchema/query/body schemas; SQL and chat service scope to authenticated userId.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/chat.route.ts",
+      "line": 45,
+      "method": "GET",
+      "relativePath": "/conversations",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", ConversationsQuerySchema",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/chat.route.ts",
+      "boundaryReview": "ConversationParamSchema/query/body schemas; SQL and chat service scope to authenticated userId.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast-auth.route.ts",
+      "line": 50,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/dast-auth-contexts",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/dast-auth.route.ts",
+      "boundaryReview": "assertOwner before read/mutation; assertTarget binds project; rotate/get scoped by projectId. Shared schemas and malformed JSON -> 400; no plaintext secret response.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast-auth.route.ts",
+      "line": 56,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dast-auth-contexts",
+      "validators": [
+        "createDastAuthContextSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/dast-auth.route.ts",
+      "boundaryReview": "assertOwner before read/mutation; assertTarget binds project; rotate/get scoped by projectId. Shared schemas and malformed JSON -> 400; no plaintext secret response.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast-auth.route.ts",
+      "line": 88,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dast-auth-contexts/:authContextId/rotate",
+      "validators": [
+        "rotateDastAuthContextSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()",
+        "c.req.param(\"authContextId\")"
+      ],
+      "validationLocation": "api/routes/dast-auth.route.ts",
+      "boundaryReview": "assertOwner before read/mutation; assertTarget binds project; rotate/get scoped by projectId. Shared schemas and malformed JSON -> 400; no plaintext secret response.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast-auth.route.ts",
+      "line": 138,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dast-auth-contexts/:authContextId/revoke",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.param(\"authContextId\")"
+      ],
+      "validationLocation": "api/routes/dast-auth.route.ts",
+      "boundaryReview": "assertOwner before read/mutation; assertTarget binds project; rotate/get scoped by projectId. Shared schemas and malformed JSON -> 400; no plaintext secret response.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 72,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/dast-targets",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 80,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dast-targets",
+      "validators": [
+        "saveDastTargetRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "readJson(c.req)"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 99,
+      "method": "PATCH",
+      "relativePath": "/projects/:projectId/dast-targets/:targetConfigId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.param(\"targetConfigId\")",
+        "readJson(c.req)"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 126,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/dast-profiles",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 134,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dast-profiles",
+      "validators": [
+        "saveDastProfileRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "readJson(c.req)"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 162,
+      "method": "PATCH",
+      "relativePath": "/projects/:projectId/dast-profiles/:profileConfigId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.param(\"profileConfigId\")",
+        "readJson(c.req)"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 206,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/dast-runs",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 214,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dast-runs",
+      "validators": [
+        "runDastRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "readJson(c.req)"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 328,
+      "method": "GET",
+      "relativePath": "/dast-runs/:dastRunId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"dastRunId\")"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 336,
+      "method": "GET",
+      "relativePath": "/dast-runs/:dastRunId/artifacts",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"dastRunId\")"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dast.route.ts",
+      "line": 347,
+      "method": "GET",
+      "relativePath": "/dast-runs/:dastRunId/artifacts/:artifactId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"dastRunId\")",
+        "c.req.param(\"artifactId\")"
+      ],
+      "validationLocation": "api/routes/dast.route.ts",
+      "boundaryReview": "assertProjectOwner and target/profile/run project membership; shared schemas/readJson. Source execution additionally authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 155,
+      "method": "GET",
+      "relativePath": "/diagnostic-reports/:reportId/download",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"reportId\")"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 148,
+      "method": "GET",
+      "relativePath": "/diagnostic-reports/:reportId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"reportId\")"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 131,
+      "method": "POST",
+      "relativePath": "/scans/:scanRunId/diagnostic-reports",
+      "validators": [
+        "readJsonBody",
+        "createDiagnosticReportRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")",
+        "readJsonBody(c)"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 124,
+      "method": "GET",
+      "relativePath": "/scans/:scanRunId/diagnostic-reports",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 102,
+      "method": "POST",
+      "relativePath": "/scans/:scanRunId/security-checks/run",
+      "validators": [
+        "readJsonBody",
+        "runSecurityChecksRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")",
+        "readJsonBody(c)"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 95,
+      "method": "GET",
+      "relativePath": "/scans/:scanRunId/security-checks",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 70,
+      "method": "POST",
+      "relativePath": "/scans/:scanRunId/attack-surface/run",
+      "validators": [
+        "readJsonBody",
+        "runAttackSurfaceInventoryRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")",
+        "readJsonBody(c)"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/diagnostics.route.ts",
+      "line": 63,
+      "method": "GET",
+      "relativePath": "/scans/:scanRunId/attack-surface",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/diagnostics.route.ts",
+      "boundaryReview": "assertScanOwner follows scan -> project; body schemas/readJsonBody; repository-reading inventory authorizes configured project path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 77,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/dynamic-profiles",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 104,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dynamic-profiles",
+      "validators": [
+        "saveDynamicProfileRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 158,
+      "method": "PATCH",
+      "relativePath": "/projects/:projectId/dynamic-profiles/:profileId",
+      "validators": [
+        "partialSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.param(\"profileId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 212,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/dynamic-runs",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 226,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/dynamic-runs",
+      "validators": [
+        "runDynamicRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"projectId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 342,
+      "method": "GET",
+      "relativePath": "/findings/:findingId/dynamic-runs",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"findingId\")"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 361,
+      "method": "POST",
+      "relativePath": "/findings/:findingId/dynamic-runs",
+      "validators": [
+        "runDynamicRequestSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"findingId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 481,
+      "method": "GET",
+      "relativePath": "/dynamic-runs/:dynamicRunId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"dynamicRunId\")"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 499,
+      "method": "GET",
+      "relativePath": "/dynamic-runs/:dynamicRunId/artifacts",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"dynamicRunId\")"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/dynamic.route.ts",
+      "line": 520,
+      "method": "GET",
+      "relativePath": "/dynamic-runs/:dynamicRunId/artifacts/:artifactId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"dynamicRunId\")",
+        "c.req.param(\"artifactId\")"
+      ],
+      "validationLocation": "api/routes/dynamic.route.ts",
+      "boundaryReview": "Project owner and nested run/artifact project binding; request safeParse; source access authorizes configured path before invocation.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/finding-decisions.route.ts",
+      "line": 19,
+      "method": "GET",
+      "relativePath": "/:decisionId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"decisionId\")"
+      ],
+      "validationLocation": "api/routes/finding-decisions.route.ts",
+      "boundaryReview": "Decision -> finding -> scan -> project owner before GET; no body required.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/finding-reviews.route.ts",
+      "line": 19,
+      "method": "GET",
+      "relativePath": "/:reviewId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"reviewId\")"
+      ],
+      "validationLocation": "api/routes/finding-reviews.route.ts",
+      "boundaryReview": "Review -> finding -> scan -> project owner before GET; no body required.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/findings.route.ts",
+      "line": 44,
+      "method": "GET",
+      "relativePath": "/:findingId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"findingId\")"
+      ],
+      "validationLocation": "api/routes/findings.route.ts",
+      "boundaryReview": "Finding -> scan -> project owner before reads/mutations; decision schema; finding-review start has no request body.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/findings.route.ts",
+      "line": 70,
+      "method": "GET",
+      "relativePath": "/:findingId/reviews",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"findingId\")"
+      ],
+      "validationLocation": "api/routes/findings.route.ts",
+      "boundaryReview": "Finding -> scan -> project owner before reads/mutations; decision schema; finding-review start has no request body.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/findings.route.ts",
+      "line": 89,
+      "method": "POST",
+      "relativePath": "/:findingId/reviews",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"findingId\")"
+      ],
+      "validationLocation": "api/routes/findings.route.ts",
+      "boundaryReview": "Finding -> scan -> project owner before reads/mutations; decision schema; finding-review start has no request body.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/findings.route.ts",
+      "line": 118,
+      "method": "GET",
+      "relativePath": "/:findingId/decisions",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"findingId\")"
+      ],
+      "validationLocation": "api/routes/findings.route.ts",
+      "boundaryReview": "Finding -> scan -> project owner before reads/mutations; decision schema; finding-review start has no request body.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/findings.route.ts",
+      "line": 138,
+      "method": "POST",
+      "relativePath": "/:findingId/decisions",
+      "validators": [
+        "createFindingDecisionSchema.parse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"findingId\")",
+        "c.req.json()"
+      ],
+      "validationLocation": "api/routes/findings.route.ts",
+      "boundaryReview": "Finding -> scan -> project owner before reads/mutations; decision schema; finding-review start has no request body.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/health.route.ts",
+      "line": 18,
+      "method": "GET",
+      "relativePath": "/ready",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/health.route.ts",
+      "boundaryReview": "/api/health public status only; /ready remains authenticated by parent allowlist. No caller-controlled body or query.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/health.route.ts",
+      "line": 15,
+      "method": "GET",
+      "relativePath": "/",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/health.route.ts",
+      "boundaryReview": "/api/health public status only; /ready remains authenticated by parent allowlist. No caller-controlled body or query.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/project-scan-preflight.route.ts",
+      "line": 50,
+      "method": "POST",
+      "relativePath": "/:projectId/scans/preflight",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\n\t\t\t\"json\",\n\t\t\tz.object",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/project-scan-preflight.route.ts",
+      "boundaryReview": "Shared route context; project owner then resolveWebProjectPath. zValidator JSON object and bounded enums/limits before preflight.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/project-scan.route.ts",
+      "line": 124,
+      "method": "POST",
+      "relativePath": "/:projectId/scans",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\n\t\t\t\t\"json\",\n\t\t\t\tz.object",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/project-scan.route.ts",
+      "boundaryReview": "Project owner then resolveWebProjectPath; zValidator request; configured execution policy before process launch.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/project-scan.route.ts",
+      "line": 58,
+      "method": "POST",
+      "relativePath": "/:projectId/scans/preview",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\n\t\t\t\t\"json\",\n\t\t\t\tz.object",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/project-scan.route.ts",
+      "boundaryReview": "Project owner then resolveWebProjectPath; zValidator request; configured execution policy before process launch.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/projects.route.ts",
+      "line": 199,
+      "method": "POST",
+      "relativePath": "/",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", createProjectSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/projects.route.ts",
+      "boundaryReview": "Owner-scoped list/find; createProjectSchema and canonical allowed roots; folder picker checked after selection. Mounted scan routes inherit same context.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/projects.route.ts",
+      "line": 179,
+      "method": "DELETE",
+      "relativePath": "/:projectId",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", z.object",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/projects.route.ts",
+      "boundaryReview": "Owner-scoped list/find; createProjectSchema and canonical allowed roots; folder picker checked after selection. Mounted scan routes inherit same context.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/projects.route.ts",
+      "line": 162,
+      "method": "GET",
+      "relativePath": "/:projectId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/projects.route.ts",
+      "boundaryReview": "Owner-scoped list/find; createProjectSchema and canonical allowed roots; folder picker checked after selection. Mounted scan routes inherit same context.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/projects.route.ts",
+      "line": 122,
+      "method": "POST",
+      "relativePath": "/folder-picker",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/projects.route.ts",
+      "boundaryReview": "Owner-scoped list/find; createProjectSchema and canonical allowed roots; folder picker checked after selection. Mounted scan routes inherit same context.",
+      "authorizationMarkers": [
+        "requireAdmin",
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/projects.route.ts",
+      "line": 107,
+      "method": "GET",
+      "relativePath": "/",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/projects.route.ts",
+      "boundaryReview": "Owner-scoped list/find; createProjectSchema and canonical allowed roots; folder picker checked after selection. Mounted scan routes inherit same context.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/reproductions.route.ts",
+      "line": 71,
+      "method": "GET",
+      "relativePath": "/findings/:findingId/reproduction-profiles",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"findingId\")"
+      ],
+      "validationLocation": "api/routes/reproductions.route.ts",
+      "boundaryReview": "Project owner; finding/run/artifact project membership; shared request schema and configured source path check.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/reproductions.route.ts",
+      "line": 407,
+      "method": "GET",
+      "relativePath": "/reproduction-runs/:reproductionRunId/artifacts/:artifactId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"reproductionRunId\")",
+        "c.req.param(\"artifactId\")"
+      ],
+      "validationLocation": "api/routes/reproductions.route.ts",
+      "boundaryReview": "Project owner; finding/run/artifact project membership; shared request schema and configured source path check.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scan-launches.route.ts",
+      "line": 53,
+      "method": "POST",
+      "relativePath": "/:projectId/scan-launches/preview",
+      "validators": [
+        "zValidator",
+        "scanLaunchPreviewSchema.parse"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", scanLaunchPreviewRequestSchema",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/scan-launches.route.ts",
+      "boundaryReview": "scanLaunchPreviewRequestSchema; project owner and configured path before capability analysis.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scan-profiles.route.ts",
+      "line": 12,
+      "method": "GET",
+      "relativePath": "/",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/scan-profiles.route.ts",
+      "boundaryReview": "Authenticated read-only profile catalog; selected profile IDs resolve catalog entries, no project record.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scan-reports.route.ts",
+      "line": 162,
+      "method": "GET",
+      "relativePath": "/:id/download",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"id\")"
+      ],
+      "validationLocation": "api/routes/scan-reports.route.ts",
+      "boundaryReview": "checkReportOwnership follows report -> scan -> project; artifact validation and storage boundaries before download.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkReportOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scan-reports.route.ts",
+      "line": 140,
+      "method": "PUT",
+      "relativePath": "/:id/viewer-state",
+      "validators": [],
+      "inputAccess": [
+        "c.req.json()",
+        "c.req.param(\"id\")"
+      ],
+      "validationLocation": "api/routes/scan-reports.route.ts",
+      "boundaryReview": "checkReportOwnership follows report -> scan -> project; artifact validation and storage boundaries before download.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkReportOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scan-reports.route.ts",
+      "line": 125,
+      "method": "GET",
+      "relativePath": "/:id/viewer-state",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"id\")"
+      ],
+      "validationLocation": "api/routes/scan-reports.route.ts",
+      "boundaryReview": "checkReportOwnership follows report -> scan -> project; artifact validation and storage boundaries before download.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkReportOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scan-reports.route.ts",
+      "line": 119,
+      "method": "GET",
+      "relativePath": "/:id",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"id\")"
+      ],
+      "validationLocation": "api/routes/scan-reports.route.ts",
+      "boundaryReview": "checkReportOwnership follows report -> scan -> project; artifact validation and storage boundaries before download.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkReportOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 467,
+      "method": "POST",
+      "relativePath": "/:scanRunId/reports",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", createScanReportSchema",
+        "c.req.param(\"scanRunId\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 432,
+      "method": "POST",
+      "relativePath": "/:scanRunId/improvement-requests",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 390,
+      "method": "POST",
+      "relativePath": "/:scanRunId/reviews",
+      "validators": [
+        "createScanReviewSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")",
+        "c.req.text()"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 366,
+      "method": "POST",
+      "relativePath": "/:scanRunId/diagnostics/retry",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 359,
+      "method": "GET",
+      "relativePath": "/:scanRunId/diagnostics",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 352,
+      "method": "GET",
+      "relativePath": "/:scanRunId/reviews",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 345,
+      "method": "GET",
+      "relativePath": "/:scanRunId/reports",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 333,
+      "method": "GET",
+      "relativePath": "/:scanRunId/groups/:groupId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")",
+        "c.req.param(\"groupId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 326,
+      "method": "GET",
+      "relativePath": "/:scanRunId/groups",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 309,
+      "method": "GET",
+      "relativePath": "/:scanRunId/summary",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 275,
+      "method": "GET",
+      "relativePath": "/:scanRunId/findings",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", FindingsQuerySchema",
+        "c.req.param(\"scanRunId\")",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 262,
+      "method": "GET",
+      "relativePath": "/:scanRunId/findings/download",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 232,
+      "method": "GET",
+      "relativePath": "/:scanRunId/artifacts/:artifactId/download",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")",
+        "c.req.param(\"artifactId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 225,
+      "method": "GET",
+      "relativePath": "/:scanRunId/artifacts",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 208,
+      "method": "POST",
+      "relativePath": "/:scanRunId/cancel",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 183,
+      "method": "GET",
+      "relativePath": "/:scanRunId/progress",
+      "validators": [
+        "scanExecutionPlanSchema.safeParse"
+      ],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 176,
+      "method": "GET",
+      "relativePath": "/:scanRunId/events",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 168,
+      "method": "DELETE",
+      "relativePath": "/:scanRunId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 162,
+      "method": "GET",
+      "relativePath": "/:scanRunId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "checkScanOwnership"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/scans.route.ts",
+      "line": 149,
+      "method": "GET",
+      "relativePath": "/",
+      "validators": [],
+      "inputAccess": [
+        "c.req.query(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/scans.route.ts",
+      "boundaryReview": "checkScanOwnership follows scan -> project; list project owner; query helpers and shared mutation schemas. Empty review body remains optional, malformed JSON -> 400. Deletion service separately scopes owner.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/search.route.ts",
+      "line": 30,
+      "method": "POST",
+      "relativePath": "/",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", SearchRequestSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/search.route.ts",
+      "boundaryReview": "SearchRequestSchema; authenticated shared-source retrieval, no project ownership semantics.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 196,
+      "method": "POST",
+      "relativePath": "/llm/provider-endpoints/:id/health",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"id\")"
+      ],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 180,
+      "method": "GET",
+      "relativePath": "/llm/codex/status",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 161,
+      "method": "PUT",
+      "relativePath": "/llm",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", LlmSettingsDocumentSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 151,
+      "method": "GET",
+      "relativePath": "/llm",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 110,
+      "method": "POST",
+      "relativePath": "/runtime/isolation/auto-configure",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 99,
+      "method": "POST",
+      "relativePath": "/runtime/dast-auth-key/generate",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", RuntimeSettingsUpdateSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 94,
+      "method": "PUT",
+      "relativePath": "/runtime",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", RuntimeSettingsUpdateSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 90,
+      "method": "GET",
+      "relativePath": "/runtime",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 74,
+      "method": "PUT",
+      "relativePath": "/system-context",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", UpdateSystemContextSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/settings.route.ts",
+      "line": 66,
+      "method": "GET",
+      "relativePath": "/system-context",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/settings.route.ts",
+      "boundaryReview": "System context is userId scoped; runtime/LLM read and write requireAdmin locally. Shared update schemas; secret redaction in settings handlers.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 453,
+      "method": "GET",
+      "relativePath": "/diff/*",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", diffQuerySchema",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 444,
+      "method": "GET",
+      "relativePath": "/history/*",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 418,
+      "method": "DELETE",
+      "relativePath": "/pages/*",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 333,
+      "method": "PUT",
+      "relativePath": "/pages/*",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", updatePageSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 279,
+      "method": "POST",
+      "relativePath": "/pages",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", writePageSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 267,
+      "method": "GET",
+      "relativePath": "/pages/*",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 253,
+      "method": "GET",
+      "relativePath": "/pages/*/raw",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 217,
+      "method": "DELETE",
+      "relativePath": "/folders/*",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 175,
+      "method": "PUT",
+      "relativePath": "/folders/*",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", writeFolderSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 152,
+      "method": "POST",
+      "relativePath": "/folders",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", writeFolderSchema",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 147,
+      "method": "GET",
+      "relativePath": "/folders",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 136,
+      "method": "POST",
+      "relativePath": "/reindex",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 108,
+      "method": "GET",
+      "relativePath": "/search",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", searchQuerySchema",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 91,
+      "method": "GET",
+      "relativePath": "/categories",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 83,
+      "method": "GET",
+      "relativePath": "/tree",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/sources.route.ts",
+      "line": 75,
+      "method": "GET",
+      "relativePath": "/health",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/sources.route.ts",
+      "boundaryReview": "Authenticated shared wiki reads; requireAdminForMutation. Query/write schemas; source-path normalizer and filesystem boundary for wildcard paths.",
+      "authorizationMarkers": [],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/static-intelligence.route.ts",
+      "line": 396,
+      "method": "GET",
+      "relativePath": "/scans/:scanRunId/intelligence/agent-query",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", agentModeSchema",
+        "c.req.param(\"scanRunId\")",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/static-intelligence.route.ts",
+      "boundaryReview": "assertProjectOwner/assertScanOwner; registered handlers and shared request parsing in static-intelligence route helpers/services. Repository access additionally uses common path resolver.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/static-intelligence.route.ts",
+      "line": 383,
+      "method": "GET",
+      "relativePath": "/scans/:scanRunId/intelligence/export",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"scanRunId\")",
+        "c.req.query(\"generationId\")"
+      ],
+      "validationLocation": "api/routes/static-intelligence.route.ts",
+      "boundaryReview": "assertProjectOwner/assertScanOwner; registered handlers and shared request parsing in static-intelligence route helpers/services. Repository access additionally uses common path resolver.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertScanOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/static-intelligence.route.ts",
+      "line": 353,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/intelligence/refresh",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"json\", refreshBodySchema",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"json\")"
+      ],
+      "validationLocation": "api/routes/static-intelligence.route.ts",
+      "boundaryReview": "assertProjectOwner/assertScanOwner; registered handlers and shared request parsing in static-intelligence route helpers/services. Repository access additionally uses common path resolver.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/static-intelligence.route.ts",
+      "line": 323,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/intelligence/ontology-handoff",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", ontologyHandoffQuerySchema",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/static-intelligence.route.ts",
+      "boundaryReview": "assertProjectOwner/assertScanOwner; registered handlers and shared request parsing in static-intelligence route helpers/services. Repository access additionally uses common path resolver.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/static-intelligence.route.ts",
+      "line": 171,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/intelligence/project-structure",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", projectStructureQuerySchema",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/static-intelligence.route.ts",
+      "boundaryReview": "assertProjectOwner/assertScanOwner; registered handlers and shared request parsing in static-intelligence route helpers/services. Repository access additionally uses common path resolver.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/static-intelligence.route.ts",
+      "line": 149,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/intelligence",
+      "validators": [
+        "zValidator"
+      ],
+      "inputAccess": [
+        "zValidator(\"query\", viewQuerySchema",
+        "c.req.param(\"projectId\")",
+        "c.req.valid(\"query\")"
+      ],
+      "validationLocation": "api/routes/static-intelligence.route.ts",
+      "boundaryReview": "assertProjectOwner/assertScanOwner; registered handlers and shared request parsing in static-intelligence route helpers/services. Repository access additionally uses common path resolver.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "assertProjectOwner"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/static-intelligence.route.ts",
+      "line": 143,
+      "method": "GET",
+      "relativePath": "/projects/intelligence-summaries",
+      "validators": [],
+      "inputAccess": [],
+      "validationLocation": "api/routes/static-intelligence.route.ts",
+      "boundaryReview": "assertProjectOwner/assertScanOwner; registered handlers and shared request parsing in static-intelligence route helpers/services. Repository access additionally uses common path resolver.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/threat-models.route.ts",
+      "line": 92,
+      "method": "GET",
+      "relativePath": "/projects/:projectId/threat-model-runs",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/threat-models.route.ts",
+      "boundaryReview": "ownedProject and repository owned-run lookups; request readers validate before persisted model operations; buildCurrentModel authorizes source path.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/threat-models.route.ts",
+      "line": 120,
+      "method": "GET",
+      "relativePath": "/threat-model-runs/:runId",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"runId\")"
+      ],
+      "validationLocation": "api/routes/threat-models.route.ts",
+      "boundaryReview": "ownedProject and repository owned-run lookups; request readers validate before persisted model operations; buildCurrentModel authorizes source path.",
+      "authorizationMarkers": [
+        "getAuthContextUser"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    },
+    {
+      "file": "api/routes/threat-models.route.ts",
+      "line": 129,
+      "method": "POST",
+      "relativePath": "/projects/:projectId/threat-model-runs",
+      "validators": [],
+      "inputAccess": [
+        "c.req.param(\"projectId\")"
+      ],
+      "validationLocation": "api/routes/threat-models.route.ts",
+      "boundaryReview": "ownedProject and repository owned-run lookups; request readers validate before persisted model operations; buildCurrentModel authorizes source path.",
+      "authorizationMarkers": [
+        "getAuthContextUser",
+        "ownerUserId"
+      ],
+      "delegatedHandlers": [],
+      "review": "Markers are navigation aids, not proof of validation or authorization. Parent middleware and delegated services must also be reviewed."
+    }
+  ]
+}

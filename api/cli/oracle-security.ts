@@ -9,27 +9,28 @@ import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import {
-	type ProfileScanResult,
-	runProfileScan,
-} from "../modules/scans/profile-runner";
+	executionConfigFromPolicy,
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/execution/scan-execution-policy";
+import { ScanReviewRepository } from "../modules/scans/handoff/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/handoff/scan-review-runner";
 import {
 	normalizeProfileResolutionInput,
 	resolveProfileSelection,
 } from "../modules/scans/profile-resolution";
 import {
+	type ProfileScanResult,
+	runProfileScan,
+} from "../modules/scans/profile-runner";
+import {
 	ProjectResolutionError,
 	resolveProjectByPath,
 } from "../modules/scans/project-resolver";
 import { FindingRepository } from "../modules/scans/repositories";
-import {
-	executionConfigFromPolicy,
-	resolveScanExecutionPolicy,
-	scanExecutionPolicyMetadata,
-} from "../modules/scans/scan-execution-policy";
-import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
-import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { LlmRouter } from "../providers/llmRouter";
+
 const DEFAULT_ORACLE_PROFILE = "agent-output";
 const DEFAULT_FINDING_LIMIT = 10;
 

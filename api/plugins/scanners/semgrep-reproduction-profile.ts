@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { ReproductionProfile } from "../../modules/reproductions/profiles";
-import { normalizeSemgrep } from "../../modules/scans/normalizers/semgrep";
+import { normalizeSemgrep } from "../../modules/scans/findings/normalizers/semgrep";
 import { StaticScannerAdapterRegistry } from "../../modules/scans/static-scanner-adapter-registry";
 import { semgrepScannerAdapter } from "./semgrep";
 

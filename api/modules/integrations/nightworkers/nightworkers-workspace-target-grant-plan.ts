@@ -1,15 +1,15 @@
 import type { ProviderWorkspaceTargetPreviewRequest } from "../../../../shared/schemas/nightworkers-security-intelligence-binding.schema";
-import { analyzeProjectCapabilities } from "../../project-capabilities/plugin-detector";
-import { buildDiffScanPlan } from "../../scans/diff-scan-plan";
-import { resolveGitDiff } from "../../scans/git-diff-resolver";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
+import { analyzeProjectCapabilities } from "../../project-capabilities/plugin-detector";
+import { buildDiffScanPlan } from "../../scans/execution/diff/diff-scan-plan";
+import { resolveGitDiff } from "../../scans/execution/diff/git-diff-resolver";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
+import { resolveNightworkersProfile } from "./nightworkers-scan-preset-registry";
 import type { NightworkersWorkspaceTargetGrantRepository } from "./nightworkers-workspace-target-grant.repository";
 import type {
-	captureWorkspaceTargetState,
 	CapturedWorkspaceTargetState,
+	captureWorkspaceTargetState,
 } from "./nightworkers-workspace-target-state";
-import { resolveNightworkersProfile } from "./nightworkers-scan-preset-registry";
 
 export type WorkspaceGrantRow = NonNullable<
 	Awaited<

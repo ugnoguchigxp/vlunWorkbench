@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
-import type { ArtifactStorage } from "../modules/scans/artifact-storage";
-import { buildMarkdownReport as defaultBuildMarkdownReport } from "../modules/scans/report-builder";
-import type { ScanReportRepository } from "../modules/scans/report-repository";
-import type { ReportViewStateRepository } from "../modules/scans/report-view-state-repository";
+import type { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
+import { buildMarkdownReport as defaultBuildMarkdownReport } from "../modules/scans/reporting/report-builder";
+import type { ScanReportRepository } from "../modules/scans/reporting/report-repository";
+import type { ReportViewStateRepository } from "../modules/scans/reporting/report-view-state-repository";
 import type {
 	ArtifactRepository,
 	ProjectRepository,

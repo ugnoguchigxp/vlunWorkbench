@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { normalizeOsv } from "../modules/scans/normalizers/osv";
+import { normalizeOsv } from "../modules/scans/findings/normalizers/osv";
 import { OsvRunner } from "../modules/scans/tools/osv-runner";
 import { executeScannerCli } from "./scan-cli-lifecycle";
 

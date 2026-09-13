@@ -79,5 +79,48 @@ describe("diff target display", () => {
 			kind: "target_state_dependency",
 			label: "依存関係の対象状態",
 		});
+		expect(
+			readDiffFindingRelationDisplay({
+				diffRelation: { kind: "unmapped" },
+			}),
+		).toEqual({ kind: "unmapped", label: "差分との対応未確定" });
+		expect(readDiffFindingRelationDisplay(null)).toBeNull();
+		expect(
+			readDiffFindingRelationDisplay({ diffRelation: { kind: "other" } }),
+		).toBeNull();
+	});
+
+	it("formats commit labels and rejects incomplete target metadata", () => {
+		expect(
+			readDiffTargetDisplay({
+				target: {
+					kind: "commit",
+					baseSha: "a".repeat(40),
+					headSha: "d".repeat(40),
+					targetDigest: "b".repeat(64),
+				},
+			})?.label,
+		).toBe(`COMMIT ${"d".repeat(7)}`);
+		expect(readDiffTargetDisplay(null)).toBeNull();
+		expect(
+			readDiffTargetDisplay({
+				target: { kind: "branch", baseSha: "a", targetDigest: "b" },
+			}),
+		).toBeNull();
+		expect(
+			readDiffTargetDisplay({
+				target: { kind: "range", baseSha: "", targetDigest: "b" },
+			}),
+		).toBeNull();
+		expect(
+			readDiffTargetDisplay({
+				target: {
+					kind: "working_tree",
+					baseSha: "a".repeat(40),
+					targetDigest: "b".repeat(64),
+				},
+				diffCoverage: { changed: 1 },
+			})?.coverage,
+		).toBeNull();
 	});
 });

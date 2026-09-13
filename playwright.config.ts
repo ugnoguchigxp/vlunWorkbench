@@ -35,6 +35,7 @@ export default defineConfig({
 		env: {
 			...process.env,
 			NODE_ENV: "production",
+			PROJECT_ALLOWED_ROOTS: e2eRoot,
 			HOST: "127.0.0.1",
 			PORT: String(port),
 			APP_URL: baseURL,

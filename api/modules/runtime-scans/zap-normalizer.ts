@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import type { NormalizedFinding } from "../scans/normalizers/fixture";
+import type { NormalizedFinding } from "../scans/findings/normalizers/fixture";
 import {
 	redactJsonSecrets,
 	redactSecrets,
-} from "../scans/normalizers/redaction";
+} from "../scans/findings/normalizers/redaction";
 import type { ZapReport, ZapSite } from "./zap-report-schema";
 
 const riskMap: Record<string, NormalizedFinding["severity"]> = {

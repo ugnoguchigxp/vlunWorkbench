@@ -2,6 +2,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { runReproductionRequestSchema } from "../../shared/schemas/reproduction.schema";
 import { observationOutcomeToLegacy } from "../../shared/schemas/verification.schema";
+import type { AppEnv } from "../app/env";
 import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
@@ -14,21 +15,19 @@ import {
 } from "../modules/reproductions/profiles";
 import { ReproductionArtifactStorage } from "../modules/reproductions/reproduction-artifact-storage";
 import { ReproductionRepository } from "../modules/reproductions/reproduction-repository";
-import type {
-	FindingRepository,
-	ProjectRepository,
-} from "../modules/scans/repositories";
-import { ScanRepository } from "../modules/scans/repositories";
 import {
 	buildDedicatedProfileAdmissionMetadata,
 	createDedicatedLaunchAttempt,
 } from "../modules/scans/dedicated-profile-admission";
 import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import { resolveStoredScanSafetyBoundary } from "../modules/scans/profile-resolution";
-import {
-	ProjectPathPolicyError,
-	resolveProjectPath,
-} from "../security/project-path-policy";
+import type {
+	FindingRepository,
+	ProjectRepository,
+} from "../modules/scans/repositories";
+import { ScanRepository } from "../modules/scans/repositories";
+import { authorizeConfiguredProjectPath } from "../security/configured-project-path";
+import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { parseCliJsonObject, runBoundedCliProcess } from "./cli-process-bridge";
 
 const REPRODUCTION_CLI_OUTPUT_LIMIT_BYTES = 1024 * 1024;
@@ -36,6 +35,7 @@ const REPRODUCTION_CLI_TIMEOUT_MS = 17 * 60 * 1000;
 
 type ReproductionsRouteDeps = {
 	db: AppDatabase;
+	env?: AppEnv;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
 	reproductionProfiles?: readonly ReproductionProfile[];
@@ -55,7 +55,10 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
 		try {
-			await resolveProjectPath(repoPath);
+			await authorizeConfiguredProjectPath(
+				repoPath,
+				deps.env?.projectAllowedRoots,
+			);
 		} catch (error) {
 			if (error instanceof ProjectPathPolicyError) {
 				throw new HttpError(400, error.message);

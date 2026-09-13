@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import {
 	listSqliteWriterProcesses,
 	waitForNewSqliteWriterProcessesToExit,
@@ -41,7 +42,13 @@ async function worker(): Promise<void> {
 			{
 				stdout: "inherit",
 				stderr: "inherit",
-				env: { ...process.env, NODE_ENV: "test" },
+				env: {
+					...process.env,
+					NODE_ENV: "test",
+					PROJECT_ALLOWED_ROOTS:
+						process.env.PROJECT_ALLOWED_ROOTS ??
+						[repositoryRoot, tmpdir()].join(","),
+				},
 			},
 		);
 		const exitCode = await proc.exited;

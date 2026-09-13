@@ -56,7 +56,7 @@ describe("Dynamic Run CLI", () => {
 			.values({
 				ownerUserId: userId,
 				name: "CLI Project",
-				repoPath: "/valid/path",
+				repoPath: process.cwd(),
 				defaultBranch: "main",
 				createdAt: now,
 				updatedAt: now,

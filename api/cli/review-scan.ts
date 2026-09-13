@@ -1,9 +1,9 @@
 import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
-import { LlmTaskSchema } from "../modules/llm-settings/llm-settings.schema";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
-import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { LlmTaskSchema } from "../modules/llm-settings/llm-settings.schema";
+import { ScanReviewRunner } from "../modules/scans/handoff/scan-review-runner";
 import { LlmRouter } from "../providers/llmRouter";
 
 function writeResult(payload: Record<string, unknown>): void {

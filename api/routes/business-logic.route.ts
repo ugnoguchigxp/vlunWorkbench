@@ -13,7 +13,7 @@ import type { BusinessLogicRunner } from "../modules/business-logic/business-log
 import { generateCatalogBusinessLogicScenario } from "../modules/business-logic/business-logic-scenario-generator";
 import { validateBusinessLogicScenario } from "../modules/business-logic/scenario-semantic-validator";
 import { DastRepository } from "../modules/dast/dast-repository";
-import { canonicalJson } from "../modules/scans/diff-scan-plan";
+import { canonicalJson } from "../modules/scans/execution/diff/diff-scan-plan";
 import type { ProjectRepository } from "../modules/scans/repositories";
 
 const generateRequestSchema = z

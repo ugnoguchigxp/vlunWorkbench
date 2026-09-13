@@ -1,7 +1,7 @@
-import { normalizeGitleaks } from "./normalizers/gitleaks";
-import { normalizeOsv } from "./normalizers/osv";
-import { normalizeTrivy } from "./normalizers/trivy";
-import { normalizeZizmor } from "./normalizers/zizmor";
+import { normalizeGitleaks } from "./findings/normalizers/gitleaks";
+import { normalizeOsv } from "./findings/normalizers/osv";
+import { normalizeTrivy } from "./findings/normalizers/trivy";
+import { normalizeZizmor } from "./findings/normalizers/zizmor";
 import type { StaticScannerAdapter } from "./static-scanner-adapter";
 import { GitleaksRunner } from "./tools/gitleaks-runner";
 import { OsvRunner } from "./tools/osv-runner";
@@ -11,6 +11,7 @@ import { ZizmorRunner } from "./tools/zizmor-runner";
 export const gitleaksScannerAdapter: StaticScannerAdapter = {
 	manifest: {
 		id: "gitleaks",
+		capabilities: ["secret_detection"],
 		displayName: "Gitleaks Secret Detection",
 		binaryName: "gitleaks",
 		upstreamLicense: "MIT",
@@ -42,6 +43,7 @@ export const gitleaksScannerAdapter: StaticScannerAdapter = {
 export const osvScannerAdapter: StaticScannerAdapter = {
 	manifest: {
 		id: "osv",
+		capabilities: ["sca"],
 		displayName: "OSV Dependency Scanner",
 		binaryName: "osv-scanner",
 		upstreamLicense: "Apache-2.0",
@@ -93,6 +95,7 @@ export const osvScannerAdapter: StaticScannerAdapter = {
 export const trivyScannerAdapter: StaticScannerAdapter = {
 	manifest: {
 		id: "trivy",
+		capabilities: ["iac_config"],
 		displayName: "Trivy Filesystem Scanner",
 		binaryName: "trivy",
 		upstreamLicense: "Apache-2.0",
@@ -138,6 +141,7 @@ export const trivyScannerAdapter: StaticScannerAdapter = {
 export const zizmorScannerAdapter: StaticScannerAdapter = {
 	manifest: {
 		id: "zizmor",
+		capabilities: ["cicd_workflow_integrity"],
 		displayName: "zizmor GitHub Actions Security",
 		binaryName: "zizmor",
 		upstreamLicense: "MIT",

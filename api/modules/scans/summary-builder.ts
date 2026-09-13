@@ -10,8 +10,8 @@ import {
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
+import { readStoredResolvedProfile } from "./execution/resolved-profile";
 import { getProfileById } from "./profiles";
-import { readStoredResolvedProfile } from "./resolved-profile";
 
 export interface ToolSummary {
 	toolId: string;

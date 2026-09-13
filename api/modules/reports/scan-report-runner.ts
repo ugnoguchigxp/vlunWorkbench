@@ -1,10 +1,10 @@
 import type { AppDatabase } from "../../db";
 import type { LlmRouter } from "../../providers/llmRouter";
-import { ScanArtifactSink } from "../scans/artifact-sink";
-import { ArtifactStorage } from "../scans/artifact-storage";
-import { buildMarkdownReport } from "../scans/report-builder";
-import { ScanReportRepository } from "../scans/report-repository";
-import { buildMarkdownReportWithLlmSummary } from "../scans/report-summary-runner";
+import { ScanArtifactSink } from "../scans/execution/lifecycle/artifact-sink";
+import { ArtifactStorage } from "../scans/execution/lifecycle/artifact-storage";
+import { buildMarkdownReport } from "../scans/reporting/report-builder";
+import { ScanReportRepository } from "../scans/reporting/report-repository";
+import { buildMarkdownReportWithLlmSummary } from "../scans/reporting/report-summary-runner";
 import { ArtifactRepository } from "../scans/repositories";
 
 const FULL_REPORT_OPTIONS = {

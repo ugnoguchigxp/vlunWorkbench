@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { buildZeroFindingDiagnosticReport } from "../modules/diagnostics/reports/zero-finding-report-builder";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ArtifactStorage } from "../modules/scans/execution/lifecycle/artifact-storage";
 import {
 	ProjectRepository,
 	ScanRepository,
