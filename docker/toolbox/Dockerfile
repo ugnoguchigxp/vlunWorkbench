@@ -1,4 +1,4 @@
-FROM golang:1.27.0-bookworm@sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452 AS patched-tools
+FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS patched-tools
 
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SOURCE_COMMIT=83d9cd684c87d95d656c1458ef04895a7f1cbd8e
@@ -75,7 +75,7 @@ RUN mkdir -p /src/slsa-verifier \
 		-ldflags "-s -w -buildid= -X sigs.k8s.io/release-utils/version.gitVersion=v${SLSA_VERIFIER_VERSION} -X sigs.k8s.io/release-utils/version.gitCommit=${SLSA_VERIFIER_SOURCE_COMMIT} -X sigs.k8s.io/release-utils/version.gitTreeState=clean" \
 		-o /out/slsa-verifier ./cli/slsa-verifier
 
-FROM golang:1.27.0-bookworm@sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452 AS trivy-binary
+FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS trivy-binary
 
 ARG TRIVY_VERSION=0.72.0
 ARG TRIVY_SOURCE_COMMIT=8a32853686209a428179bb3a1688802b25691564
