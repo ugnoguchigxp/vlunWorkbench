@@ -1,6 +1,6 @@
 # Contributing
 
-Use Bun 1.3.14 and install dependencies with:
+Use Bun 1.4.4 and install dependencies with:
 
 ```bash
 bun install --frozen-lockfile

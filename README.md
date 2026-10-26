@@ -1,6 +1,6 @@
 # vulnWorkbench
 
-[![Bun](https://img.shields.io/badge/Bun-1.3.14-black?logo=bun)](https://bun.sh/)
+[![Bun](https://img.shields.io/badge/Bun-1.4.4-black?logo=bun)](https://bun.sh/)
 [![Hono](https://img.shields.io/badge/Hono-4.x-E36002?logo=hono)](https://hono.dev/)
 [![React](https://img.shields.io/badge/React-19-20232a?logo=react)](https://react.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-local-07405e?logo=sqlite)](https://www.sqlite.org/)
@@ -54,11 +54,11 @@ A **scan profile** is a saved execution menu: it defines the scope, required too
 
 ### Requirements
 
-- [Bun](https://bun.sh/) 1.3.14
+- [Bun](https://bun.sh/) 1.4.4
 - A local terminal
 - For actual scans, either the binaries required by the selected profile or Docker
 
-Bun is the runtime and package manager used to execute the TypeScript application, install dependencies, and run tests. This repository is verified with Bun 1.3.14.
+Bun is the runtime and package manager used to execute the TypeScript application, install dependencies, and run tests. This repository uses Bun 1.4.4.
 
 Development mode runs scanners directly on the host by default. For example, the `baseline` profile requires the `gitleaks` and `osv-scanner` executables. If you select Docker execution, build the scanner toolbox image first.
 

@@ -31,7 +31,7 @@ function successfulRunner() {
 		if (argv.includes("{{json .RepoDigests}}")) {
 			return result(
 				JSON.stringify([
-					argv.at(-1) === "oven/bun:1.3.14"
+					argv.at(-1) === "oven/bun:1.4.4"
 						? `oven/bun@${digest("c")}`
 						: `node@${digest("a")}`,
 				]),
@@ -181,7 +181,7 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 				return result("daemon-id\t29.5.0\tlinux\tarm64\toverlayfs\t2\n");
 			}
 			if (argv.includes("{{json .RepoDigests}}")) {
-				if (argv.at(-1) === "oven/bun:1.3.14") {
+				if (argv.at(-1) === "oven/bun:1.4.4") {
 					return result(JSON.stringify([`oven/bun@${digest("d")}`]));
 				}
 				return argv.at(-1) === "node:22-bookworm-slim"
@@ -219,7 +219,7 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 				(argv) =>
 					argv[1] === "pull" &&
 					(argv.at(-1) === "node:22-bookworm-slim" ||
-						argv.at(-1) === "oven/bun:1.3.14"),
+						argv.at(-1) === "oven/bun:1.4.4"),
 			),
 		).toBe(false);
 	});

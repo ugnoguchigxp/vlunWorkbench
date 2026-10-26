@@ -1,6 +1,6 @@
 # vulnWorkbench
 
-[![Bun](https://img.shields.io/badge/Bun-1.3.14-black?logo=bun)](https://bun.sh/)
+[![Bun](https://img.shields.io/badge/Bun-1.4.4-black?logo=bun)](https://bun.sh/)
 [![Hono](https://img.shields.io/badge/Hono-4.x-E36002?logo=hono)](https://hono.dev/)
 [![React](https://img.shields.io/badge/React-19-20232a?logo=react)](https://react.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-local-07405e?logo=sqlite)](https://www.sqlite.org/)
@@ -54,11 +54,11 @@ LLMを設定していない場合や、LLMの応答が所定の形式に合わ�
 
 ### 必要なもの
 
-- [Bun](https://bun.sh/) 1.3.14
+- [Bun](https://bun.sh/) 1.4.4
 - ローカルで動かすためのターミナル
 - 実際にスキャンする場合は、選んだプロファイルが使うスキャナー、またはDocker
 
-Bunは、TypeScriptの実行、パッケージの導入、テストを一つで扱う実行環境です。このリポジトリはBun 1.3.14で検証されています。
+Bunは、TypeScriptの実行、パッケージの導入、テストを一つで扱う実行環境です。このリポジトリではBun 1.4.4を使用します。
 
 開発環境では、スキャナーをホスト、つまり自分のPC上で直接実行する設定が初期値です。たとえば`baseline`プロファイルには`gitleaks`と`osv-scanner`が必要です。Dockerを選ぶ場合は、スキャナーをまとめたツールボックスイメージを先に用意します。
 

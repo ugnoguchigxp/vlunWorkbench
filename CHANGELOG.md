@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-No unreleased changes are classified yet.
+### Security
+
+- Upgrade Bun from 1.3.14 to 1.4.4 across CI, container runtimes, runtime
+  qualification, and development type definitions to apply the upstream
+  security fixes: https://bun.sh/blog/bun-v1.4.4.
 
 ## [1.0.0] - 2026-08-15
 

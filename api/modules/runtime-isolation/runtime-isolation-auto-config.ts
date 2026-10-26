@@ -16,7 +16,7 @@ import {
 } from "./runtime-isolation-auto-config-commands";
 
 const BASE_IMAGE_TAG = "node:22-bookworm-slim";
-const BUN_IMAGE_TAG = "oven/bun:1.3.14";
+const BUN_IMAGE_TAG = "oven/bun:1.4.4";
 const LOCAL_FALLBACK_BASE_IMAGE_TAG = "vuln-workbench-dynamic:local";
 const RUNTIME_IMAGE_LOCAL_TAG = "vuln-workbench-runtime:local";
 const RUNTIME_IMAGE_REPOSITORY = "vuln-workbench-runtime";
@@ -324,7 +324,7 @@ async function performLocalRuntimeIsolationAutoConfiguration(params: {
 				pinnedRuntimeImage,
 				"sh",
 				"-ceu",
-				'command -v node; command -v npm; command -v bun; command -v bunx; test -L "$(command -v bunx)"; test "$(readlink "$(command -v bunx)")" = "/usr/local/bin/bun"; test "$(readlink /opt/vuln-workbench-bun-bin/node)" = "/usr/local/bin/bun"; test "$(PATH=/opt/vuln-workbench-bun-bin:$PATH node -e "process.stdout.write(typeof Bun)")" = "object"; test "$(bun --version)" = "1.3.14"; command -v sh; command -v wget; command -v curl; command -v cp; command -v chmod; command -v sleep; test "$(id -u)" = 1000',
+				'command -v node; command -v npm; command -v bun; command -v bunx; test -L "$(command -v bunx)"; test "$(readlink "$(command -v bunx)")" = "/usr/local/bin/bun"; test "$(readlink /opt/vuln-workbench-bun-bin/node)" = "/usr/local/bin/bun"; test "$(PATH=/opt/vuln-workbench-bun-bin:$PATH node -e "process.stdout.write(typeof Bun)")" = "object"; test "$(bun --version)" = "1.4.4"; command -v sh; command -v wget; command -v curl; command -v cp; command -v chmod; command -v sleep; test "$(id -u)" = 1000',
 			],
 			60_000,
 			"runtime_isolation_toolchain_qualification_failed",
